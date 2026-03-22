@@ -2,13 +2,41 @@
   <img src="social-preview.png" alt="The Databricks 100" width="800">
 </p>
 
+<sub>Independent educational resource. Not affiliated with or endorsed by Databricks, Inc.</sub>
+
 **Databricks has hundreds of features, configs, and services. Here are the 100 that actually matter.**
 
 Go through each category. Be honest: can you explain each concept to a colleague without looking anything up? If not, that's your gap.
 
 Easy = what you should know after month one. Medium = solid mid-level knowledge. Hard = senior-level depth. All concepts reflect 2026 Databricks best practices.
 
-> Built by [dataengineer.wiki](https://dataengineer.wiki) -- cheat sheets, exercises, labs, and career tools for Databricks data engineers.
+> Built by [dataengineer.wiki](https://dataengineer.wiki) - cheat sheets, exercises, labs, and career tools for Databricks data engineers.
+
+---
+
+## Score Yourself
+
+Go through every concept. Can you explain it without looking anything up? Count your score.
+
+| Your Score | What It Means |
+|-----------|---------------|
+| **80-100** | Senior-level. You can architect and debug production systems. Focus on the Hard concepts you missed. |
+| **50-79** | Solid mid-level. You know the daily work but have gaps in internals and advanced patterns. |
+| **30-49** | Building foundations. Focus on Easy and Medium concepts in Categories 1, 3, and 4 first. |
+| **Under 30** | Early stage. Start with all Easy concepts. Come back in 3 months and re-score. |
+
+Share your score. Send this to a colleague who's prepping for Databricks interviews or certification.
+
+### The 100-Day Challenge
+
+One concept per day. 100 days. Post what you learned on LinkedIn with **#100DaysOfDatabricks**.
+
+1. Fork this repo
+2. One concept per day, starting at #1
+3. Post your takeaway on LinkedIn
+4. Check it off and move on
+
+Day 1: ACID Transactions. Day 100: Testing Patterns. By the end, you can explain every concept a senior Databricks engineer needs to know.
 
 ---
 
@@ -16,16 +44,16 @@ Easy = what you should know after month one. Medium = solid mid-level knowledge.
 
 | # | Category | Concepts | Focus |
 |---|----------|----------|-------|
-| 1 | [Delta Lake](#1-delta-lake) | #1 -- #10 | Storage layer fundamentals |
-| 2 | [Spark Execution](#2-spark-execution) | #11 -- #20 | How the engine works |
-| 3 | [SQL & DataFrames](#3-sql--dataframes) | #21 -- #30 | Daily transformation work |
-| 4 | [Data Ingestion](#4-data-ingestion) | #31 -- #40 | Getting data in |
-| 5 | [Streaming](#5-streaming) | #41 -- #50 | Real-time processing |
-| 6 | [Performance & Cost](#6-performance--cost) | #51 -- #60 | Making it fast and cheap |
-| 7 | [Unity Catalog & Governance](#7-unity-catalog--governance) | #61 -- #70 | Security and access control |
-| 8 | [Lakeflow Declarative Pipelines](#8-lakeflow-declarative-pipelines) | #71 -- #80 | Managed pipeline engine (formerly DLT) |
-| 9 | [Workflows, CI/CD & Operations](#9-workflows-cicd--operations) | #81 -- #90 | Running it in production |
-| 10 | [Architecture & Advanced Patterns](#10-architecture--advanced-patterns) | #91 -- #100 | Senior-level decisions |
+| 1 | [Delta Lake](#1-delta-lake) | #1 - #10 | Storage layer fundamentals |
+| 2 | [Spark Execution](#2-spark-execution) | #11 - #20 | How the engine works |
+| 3 | [SQL & DataFrames](#3-sql--dataframes) | #21 - #30 | Daily transformation work |
+| 4 | [Data Ingestion](#4-data-ingestion) | #31 - #40 | Getting data in |
+| 5 | [Streaming](#5-streaming) | #41 - #50 | Real-time processing |
+| 6 | [Performance & Cost](#6-performance--cost) | #51 - #60 | Making it fast and cheap |
+| 7 | [Unity Catalog & Governance](#7-unity-catalog--governance) | #61 - #70 | Security and access control |
+| 8 | [Lakeflow Declarative Pipelines](#8-lakeflow-declarative-pipelines) | #71 - #80 | Managed pipeline engine (formerly DLT) |
+| 9 | [Workflows, CI/CD & Operations](#9-workflows-cicd--operations) | #81 - #90 | Running it in production |
+| 10 | [Architecture & Advanced Patterns](#10-architecture--advanced-patterns) | #91 - #100 | Senior-level decisions |
 
 ---
 
@@ -219,55 +247,6 @@ Senior-level decisions. Understanding tradeoffs, designing systems, managing com
 
 ---
 
-## Certification Mapping
-
-Each concept maps to Databricks certification exam domains. Exam structure current as of July 2025.
-
-### Databricks Certified Data Engineer Associate
-
-| Exam Section | Weight | Concepts |
-|-------------|--------|---------|
-| S1: Databricks Intelligence Platform | 10% | #1, #12, #36, #33, #51, #61, #81, #92 |
-| S2: Development and Ingestion | 30% | #2, #3, #4, #11, #21, #22, #31, #32, #34, #35, #37, #83 |
-| S3: Data Processing & Transformations | 31% | #5, #6, #23, #24, #25, #26, #27, #29, #41, #42, #43, #72 |
-| S4: Productionizing Data Pipelines | 18% | #71, #73, #77, #82, #85, #86, #88, #90 |
-| S5: Data Governance & Quality | 11% | #30, #61, #62, #63, #64, #65, #69 |
-
-### Databricks Certified Data Engineer Professional
-
-Covers all 100 concepts at production depth, with emphasis on: #8, #9, #10, #14, #19, #20, #29, #39, #40, #48, #49, #50, #53, #59, #60, #69, #70, #77, #78, #80, #90, #95, #98, #99, #100.
-
----
-
-## Score Yourself
-
-Go through every concept. Can you explain it without looking anything up? Count your score.
-
-| Your Score | What It Means |
-|-----------|---------------|
-| **80-100** | Senior-level. You can architect and debug production systems. Focus on the Hard concepts you missed. |
-| **50-79** | Solid mid-level. You know the daily work but have gaps in internals and advanced patterns. |
-| **30-49** | Building foundations. Focus on Easy and Medium concepts in Categories 1, 3, and 4 first. |
-| **Under 30** | Early stage. Start with all Easy concepts. Come back in 3 months and re-score. |
-
-Share your score. Send this to a colleague who's prepping for Databricks interviews or certification.
-
-### Certification Prep
-Use the mapping above. Study high-weight sections first: S3 (31%), S2 (30%), S4 (18%).
-
-### The 100-Day Challenge
-
-One concept per day. 100 days. Post what you learned on LinkedIn with **#100DaysOfDatabricks**.
-
-1. Fork this repo
-2. One concept per day, starting at #1
-3. Post your takeaway on LinkedIn
-4. Check it off and move on
-
-Day 1: ACID Transactions. Day 100: Testing Patterns. By the end, you can explain every concept a senior Databricks engineer needs to know.
-
----
-
 ## Practice & Resources
 
 | Resource | What It Covers | Link |
@@ -275,7 +254,7 @@ Day 1: ACID Transactions. Day 100: Testing Patterns. By the end, you can explain
 | **DataDojo** | 633+ practice exercises across all categories | [dojo.dataengineer.wiki](https://dojo.dataengineer.wiki) |
 | **Data Engineer Wiki** | Cheat sheets, learning paths, cert prep guides | [dataengineer.wiki](https://dataengineer.wiki) |
 | **Hands-On Labs** | Production-grade Databricks labs on GitHub | [GitHub Labs](https://github.com/topics/databricks-lab) |
-| **Interview Cheat Sheet** | 86 senior-level Databricks interview Q&A | [dataengineer.wiki/cheat-sheet](https://dataengineer.wiki/cheat-sheet) |
+| **Interview Cheat Sheet** | 86 senior-level Databricks interview Q&A | [dataengineer.wiki/cheat-sheet-senior](https://dataengineer.wiki/cheat-sheet-senior) |
 | **Databricks Academy** | Official free courses | [academy.databricks.com](https://academy.databricks.com) |
 | **Databricks Docs** | Official reference | [docs.databricks.com](https://docs.databricks.com) |
 
@@ -295,13 +274,13 @@ Found an error? Think a concept should be added or replaced? Open an issue or PR
 Databricks has hundreds of features. These are the 100 concepts Databricks data engineers encounter most often in production. Every concept earns its spot through a universality test: if most engineers rarely encounter it, it's not on the list.
 
 **Is this for the Associate or Professional cert?**
-Both. The Associate covers roughly 60 of the 100. The Professional covers all 100 at production depth. See the certification mapping.
+Both. The Associate covers roughly 60 of the 100. The Professional covers all 100 at production depth.
 
 **I scored under 50. Should I panic?**
 No. Most engineers have gaps they don't know about. That's the point of this list. Focus on the Easy concepts first, re-score in 3 months.
 
 **Can I use this for interview prep?**
-Yes. These concepts appear in real Databricks data engineering interviews. The [Interview Cheat Sheet](https://dataengineer.wiki/cheat-sheet) has detailed answers for the most common questions.
+Yes. These concepts appear in real Databricks data engineering interviews. The [Interview Cheat Sheet](https://dataengineer.wiki/cheat-sheet-senior) has detailed answers for the most common questions.
 
 **Something is outdated or wrong.**
 Open an issue. Databricks evolves fast. This list reflects 2026 best practices (Liquid Clustering over Z-ORDER, Lakeflow Declarative Pipelines over DLT, serverless as default, Predictive Optimization, etc.). We update when the platform changes.
@@ -317,5 +296,3 @@ MIT License. Use it, share it, fork it.
 **Ready to start? Fork the repo, pick concept #1, and post your first #100DaysOfDatabricks on LinkedIn.**
 
 Built and maintained by [dataengineer.wiki](https://dataengineer.wiki).
-
-<sub>Independent educational resource. Not affiliated with or endorsed by Databricks, Inc.</sub>
