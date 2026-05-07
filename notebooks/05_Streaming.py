@@ -23,6 +23,17 @@
 # MAGIC ### Setup — Create Directories and Clean Checkpoints
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ⚠️ **SERVERLESS COMPATIBILITY NOTE**
+# MAGIC
+# MAGIC This notebook has been adapted for serverless compute:
+# MAGIC - All Delta sinks use **managed tables** (`saveAsTable`) instead of DBFS/Volumes paths
+# MAGIC - Checkpoint paths use `/tmp/` (workspace-local temp) — **may fail on serverless** clusters that don't support local storage; a DBFS fallback is provided where applicable
+# MAGIC - `dbutils.fs.rm` calls replaced with `DROP TABLE IF EXISTS` for managed tables
+# MAGIC - File-based CSV streaming sources use `/tmp/`; these may also fail on strict serverless environments
+# MAGIC - If you encounter checkpoint errors, set `checkpointLocation` to a Unity Catalog Volume path
+
+# COMMAND ----------
 import os
 import shutil
 import time
@@ -45,21 +56,27 @@ from pyspark.sql.streaming import DataStreamWriter
 
 print("✅ Spark session ready")
 
-# ── Working directories ──
-BASE_DIR = "/tmp/streaming_demo"
-CHECKPOINT_DIR = f"{BASE_DIR}/checkpoints"
-STREAM_SRC_DIR  = f"{BASE_DIR}/source_csv"
-DELTA_SINK_DIR  = f"{BASE_DIR}/delta_sink"
-STATIC_DIR      = f"{BASE_DIR}/static"
-DUAL_SINK_1     = f"{BASE_DIR}/dual_sink/events"
-DUAL_SINK_2     = f"{BASE_DIR}/dual_sink/summary"
+# ── Serverless-compatible configuration ──
+DB = "default"
+CHECKPOINT_DIR = f"/tmp/{DB}/_checkpoints_streaming"
 
-dirs = [BASE_DIR, CHECKPOINT_DIR, STREAM_SRC_DIR,
-        DELTA_SINK_DIR, STATIC_DIR, DUAL_SINK_1, DUAL_SINK_2]
+def get_checkpoint(name):
+    """Return a checkpoint path with serverless fallback to DBFS."""
+    local = f"{CHECKPOINT_DIR}/{name}"
+    try:
+        os.makedirs(local, exist_ok=True)
+        return local
+    except Exception:
+        fallback = f"dbfs:/tmp/{DB}/_checkpoints_streaming/{name}"
+        print(f"⚠️  Local checkpoint unavailable; using DBFS fallback: {fallback}")
+        return fallback
 
-for d in dirs:
-    os.makedirs(d, exist_ok=True)
-    print(f"  📁 {d}")
+# For CSV streaming sources (local temp)
+STREAM_SRC_DIR = "/tmp/streaming_csv_source"
+
+# Ensure source directory exists
+os.makedirs(STREAM_SRC_DIR, exist_ok=True)
+print(f"  📁 {STREAM_SRC_DIR}")
 
 # Kill any lingering streams
 for q in spark.streams.active:
@@ -147,10 +164,8 @@ print("⏹️  Streaming query stopped.")
 # MAGIC - **Source**: Another stream reads new Delta files as they are committed
 
 # COMMAND ----------
-# ── Write rate data to a Delta table ──
-delta_sink_path = f"{DELTA_SINK_DIR}/rate_sink_q41"
-
-dbutils.fs.rm(delta_sink_path, True)
+# ── Write rate data to a managed Delta table ──
+spark.sql(f"DROP TABLE IF EXISTS {DB}.rate_sink_q41")
 
 delta_query = (
     spark.readStream
@@ -160,25 +175,21 @@ delta_query = (
     .writeStream
     .format("delta")
     .outputMode("append")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/q41_delta")
+    .option("checkpointLocation", get_checkpoint("q41_delta"))
     .trigger(processingTime="10 seconds")
-    .start(delta_sink_path)
+    .start(f"{DB}.rate_sink_q41")
 )
 
-print("📤 Streaming into Delta table...")
+print("📤 Streaming into managed Delta table...")
 time.sleep(20)
 
 # Read the Delta table as a static batch
-df_batch = spark.read.format("delta").load(delta_sink_path)
+df_batch = spark.read.table(f"{DB}.rate_sink_q41")
 print(f"📊 Delta table row count: {df_batch.count()}")
 df_batch.orderBy("timestamp", ascending=False).show(5, truncate=False)
 
-# Now treat the same Delta table as a *streaming source*!
-df_streaming_source = (
-    spark.readStream
-    .format("delta")
-    .load(delta_sink_path)
-)
+# Now treat the same managed Delta table as a *streaming source*!
+df_streaming_source = spark.readStream.table(f"{DB}.rate_sink_q41")
 print(f"\n🔁 Delta as streaming source — isStreaming: {df_streaming_source.isStreaming}")
 
 delta_query.stop()
@@ -233,7 +244,7 @@ print("   Process ALL available data in one shot, then stop.\n")
 
 # Write a batch of CSV files to simulate "available now" data
 available_dir = f"{STREAM_SRC_DIR}/available_now_q42"
-dbutils.fs.rm(available_dir, True)
+shutil.rmtree(available_dir, ignore_errors=True)
 os.makedirs(available_dir, exist_ok=True)
 
 # Generate CSV files
@@ -636,8 +647,7 @@ print("CONCEPT 46 — foreachBatch Pattern")
 print("=" * 60)
 
 # Prepare Delta sink for MERGE
-delta_merge_path = f"{DELTA_SINK_DIR}/foreachBatch_merge_q46"
-dbutils.fs.rm(delta_merge_path, True)
+spark.sql(f"DROP TABLE IF EXISTS {DB}.foreachbatch_merge_q46")
 
 # Create an empty Delta table with schema
 merge_schema = StructType([
@@ -647,8 +657,8 @@ merge_schema = StructType([
     StructField("last_updated", TimestampType())
 ])
 empty_df = spark.createDataFrame([], merge_schema)
-empty_df.write.format("delta").mode("overwrite").save(delta_merge_path)
-print(f"📁 Empty Delta table created at: {delta_merge_path}")
+empty_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.foreachbatch_merge_q46")
+print(f"📁 Empty Delta table created: {DB}.foreachbatch_merge_q46")
 
 # ── foreachBatch: write to BOTH a memory sink AND a Delta table with MERGE ──
 source_stream = (
@@ -683,7 +693,7 @@ def process_micro_batch(df_batch, epoch_id):
 
     # Merge into Delta: upsert per sensor_id
     from delta.tables import DeltaTable
-    delta_table = DeltaTable.forPath(spark, delta_merge_path)
+    delta_table = DeltaTable.forName(spark, f"{DB}.foreachbatch_merge_q46")
 
     (delta_table.alias("target")
      .merge(agg_batch.alias("source"),
@@ -717,7 +727,7 @@ q_foreach.stop()
 
 # ── Show the merged Delta table ──
 print("\n📊 Final Delta table (upserted by sensor_id):")
-spark.read.format("delta").load(delta_merge_path).show(truncate=False)
+spark.read.table(f"{DB}.foreachbatch_merge_q46").show(truncate=False)
 
 print("\n✅ foreachBatch pattern with Delta MERGE demonstrated.")
 
@@ -732,9 +742,9 @@ print("\n✅ foreachBatch pattern with Delta MERGE demonstrated.")
 # COMMAND ----------
 print("\n─── foreachBatch: Multiple Sinks ───")
 
-# Clean up dual-sink directories
-for dp in [DUAL_SINK_1, DUAL_SINK_2]:
-    dbutils.fs.rm(dp, True)
+# Clean up dual-sink tables
+for tbl in [f"{DB}.dual_sink_events", f"{DB}.dual_sink_summary"]:
+    spark.sql(f"DROP TABLE IF EXISTS {tbl}")
 
 events_schema = StructType([
     StructField("event_id", LongType()),
@@ -764,10 +774,10 @@ clickstream = (
 def write_to_multiple_sinks(df_batch, epoch_id):
     print(f"\n🔹 Multi-sink epoch={epoch_id}, rows={df_batch.count()}")
 
-    # Sink 1: raw events to Delta
-    df_batch.write.format("delta").mode("append").save(DUAL_SINK_1)
+    # Sink 1: raw events to managed Delta
+    df_batch.write.format("delta").mode("append").saveAsTable(f"{DB}.dual_sink_events")
 
-    # Sink 2: per-user summary to Delta
+    # Sink 2: per-user summary to managed Delta
     summary = (
         df_batch
         .groupBy("user_id")
@@ -778,7 +788,7 @@ def write_to_multiple_sinks(df_batch, epoch_id):
         )
         .withColumn("epoch_id", lit(epoch_id))
     )
-    summary.write.format("delta").mode("append").save(DUAL_SINK_2)
+    summary.write.format("delta").mode("append").saveAsTable(f"{DB}.dual_sink_summary")
 
     print(f"   ✅ Wrote to both sinks")
 
@@ -795,10 +805,10 @@ time.sleep(15)
 q_multi.stop()
 
 print("\n📊 Sink 1 — Raw events:")
-spark.read.format("delta").load(DUAL_SINK_1).show(10, truncate=False)
+spark.read.table(f"{DB}.dual_sink_events").show(10, truncate=False)
 
 print("\n📊 Sink 2 — Per-user summaries:")
-spark.read.format("delta").load(DUAL_SINK_2).show(10, truncate=False)
+spark.read.table(f"{DB}.dual_sink_summary").show(10, truncate=False)
 
 print("\n✅ Multiple sinks from a single stream demo complete.")
 
@@ -840,10 +850,9 @@ print("=" * 60)
 print("CONCEPT 47 — Streaming Tables (Manual Equivalent)")
 print("=" * 60)
 
-delta_streaming_table_path = f"{DELTA_SINK_DIR}/manual_streaming_table_q47"
-dbutils.fs.rm(delta_streaming_table_path, True)
+spark.sql(f"DROP TABLE IF EXISTS {DB}.manual_streaming_table_q47")
 
-# ── Manual "streaming table": readStream → writeStream to Delta ──
+# ── Manual "streaming table": readStream → writeStream to managed Delta ──
 streaming_source = (
     spark.readStream
     .format("rate")
@@ -858,16 +867,16 @@ manual_streaming_table = (
     .writeStream
     .format("delta")
     .outputMode("append")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/manual_streaming_q47")
+    .option("checkpointLocation", get_checkpoint("manual_streaming_q47"))
     .trigger(processingTime="5 seconds")
-    .start(delta_streaming_table_path)
+    .start(f"{DB}.manual_streaming_table_q47")
 )
 
-print("📤 Manual streaming table writing to Delta...")
+print("📤 Manual streaming table writing to managed Delta...")
 time.sleep(15)
 
 # Read the "streaming table" as a batch
-df_streaming_table = spark.read.format("delta").load(delta_streaming_table_path)
+df_streaming_table = spark.read.table(f"{DB}.manual_streaming_table_q47")
 print(f"\n📊 Manual streaming table row count: {df_streaming_table.count()}")
 df_streaming_table.orderBy(col("timestamp").desc()).show(5, truncate=False)
 
@@ -914,8 +923,8 @@ print("=" * 60)
 print("CONCEPT 48 — Checkpointing & Exactly-Once")
 print("=" * 60)
 
-checkpoint_q48 = f"{CHECKPOINT_DIR}/checkpoint_demo_q48"
-dbutils.fs.rm(checkpoint_q48, True)
+checkpoint_q48 = get_checkpoint("checkpoint_demo_q48")
+shutil.rmtree(checkpoint_q48, ignore_errors=True)
 
 # ── Run a stream with a checkpoint ──
 q_with_checkpoint = (
@@ -977,7 +986,7 @@ print(f"   In production (Kafka/Delta), checkpoint ensures NO data loss/duplicat
 q_restarted.stop()
 
 # ── What happens if you DELETE the checkpoint? ──
-dbutils.fs.rm(checkpoint_q48, True)
+shutil.rmtree(checkpoint_q48, ignore_errors=True)
 print(f"\n🗑️  Checkpoint deleted: {checkpoint_q48}")
 print("   If you restart without the checkpoint:")
 print("   • All offsets are lost → stream re-reads from start (DUPLICATE DATA)")
@@ -1056,7 +1065,7 @@ q_watermark = (
     .format("memory")
     .queryName("watermarked_q49")
     .outputMode("update")  # MUST be "update" or "append" with watermark
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/watermark_q49")
+    .option("checkpointLocation", get_checkpoint("watermark_q49"))
     .trigger(processingTime="10 seconds")
     .start()
 )
@@ -1093,7 +1102,7 @@ q_no_watermark = (
     .format("memory")
     .queryName("no_watermark_q49")
     .outputMode("complete")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/no_watermark_q49")
+    .option("checkpointLocation", get_checkpoint("no_watermark_q49"))
     .trigger(processingTime="10 seconds")
     .start()
 )
@@ -1214,7 +1223,7 @@ q_ss_join = (
     .format("memory")
     .queryName("stream_stream_join_q50")
     .outputMode("append")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/stream_join_q50")
+    .option("checkpointLocation", get_checkpoint("stream_join_q50"))
     .trigger(processingTime="10 seconds")
     .start()
 )
@@ -1268,7 +1277,7 @@ q_ss_left = (
     .format("memory")
     .queryName("stream_stream_left_q50")
     .outputMode("append")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/stream_join_left_q50")
+    .option("checkpointLocation", get_checkpoint("stream_join_left_q50"))
     .trigger(processingTime="10 seconds")
     .start()
 )

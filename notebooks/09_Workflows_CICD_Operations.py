@@ -98,7 +98,7 @@ job_cluster_config = {
             "cost_center": "de-2025"
         },
         "init_scripts": [
-            {"dbfs": {"destination": "dbfs:/databricks/init/install_deps.sh"}}
+            {"volumes": {"destination": "/Volumes/catalog/schema/volume/install_deps.sh"}}  # DBFS init scripts not supported on serverless; use Unity Catalog Volumes
         ],
         "spark_env_vars": {
             "ENV": "production",

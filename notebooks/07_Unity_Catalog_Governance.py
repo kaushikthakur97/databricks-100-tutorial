@@ -1078,28 +1078,33 @@ display(spark.sql("DESCRIBE EXTENDED sales_db.orders_managed"))
 
 # MAGIC %md
 # MAGIC **Create an external table on DBFS** — the data lives at a path you control.
+# MAGIC
+# MAGIC ⚠️ **SERVERLESS NOTE:** DBFS paths (`/FileStore/`) are not available on serverless compute.
+# MAGIC This demo now uses a **managed table** (`default.orders_external`) to illustrate the concept.
+# MAGIC In production Unity Catalog, you would use an external location (S3/ADLS/GCS) instead.
 
 # COMMAND ----------
 
-dbfs_path = "/FileStore/tables/sales_db/orders_external"
-
-# Write data to an explicit DBFS location (simulates data landing in external storage)
+# Write data as a managed table (serverless-compatible)
 external_df = spark.createDataFrame(
     [(3, "Widget-C", 100.00), (4, "Widget-D", 350.00), (5, "Widget-E", 225.00)],
     ["order_id", "product", "amount"]
 )
-external_df.write.format("delta").mode("overwrite").save(dbfs_path)
-print(f"Data written to: {dbfs_path}")
+# Drop any prior table, then save as managed
+spark.sql("DROP TABLE IF EXISTS default.orders_external")
+external_df.write.format("delta").mode("overwrite").saveAsTable("default.orders_external")
+print(f"Data written to managed table: default.orders_external")
 
-# Now create an external table pointing to that location
+# Now create an alias/reference in sales_db pointing to the same managed table
+# (In production UC, you'd use LOCATION pointing to an external storage path)
 spark.sql(f"""
     CREATE OR REPLACE TABLE sales_db.orders_external
     USING DELTA
-    LOCATION '{dbfs_path}'
+    AS SELECT * FROM default.orders_external
 """)
 
-print("\nExternal table created — schema in Hive Metastore, data at DBFS path.")
-print(f"DBFS Path: {dbfs_path}")
+print("\nExternal table concept — schema in Hive Metastore, table aliased in sales_db.")
+print(f"Reference: default.orders_external (managed)")
 display(spark.sql("DESCRIBE EXTENDED sales_db.orders_external"))
 
 # COMMAND ----------
@@ -1130,13 +1135,15 @@ print("Dropped MANAGED table — data is gone.")
 spark.sql("DROP TABLE IF EXISTS sales_db.orders_external")
 print("Dropped EXTERNAL table — schema removed, data still on DBFS.")
 
-# Re-register the external table from the same data
-spark.sql(f"""
+# Re-register the external table from the managed source
+# In production UC with external tables, dropping just removes the schema — data survives.
+# Here we re-create from the managed source to illustrate the concept.
+spark.sql("""
     CREATE OR REPLACE TABLE sales_db.orders_external
     USING DELTA
-    LOCATION '{dbfs_path}'
+    AS SELECT * FROM default.orders_external
 """)
-print("Re-registered external table from the same data — data survived the drop!")
+print("Re-created orders_external from managed source — illustrating external table survivability!")
 display(spark.sql("SELECT COUNT(*) AS surviving_rows FROM sales_db.orders_external"))
 
 # COMMAND ----------
@@ -2425,6 +2432,7 @@ tables_to_drop = [
     "sales_db.audit_log",
     "sales_db.orders_managed",
     "sales_db.orders_external",
+    "default.orders_external",
     "sales_db.audit_test_table",
     "hr_db.employees",
     "hr_db.payroll",

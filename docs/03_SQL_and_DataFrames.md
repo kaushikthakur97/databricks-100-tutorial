@@ -1,28 +1,31 @@
-# 03 — SQL & DataFrames: Advanced Analytics
+ # 03 — SQL & DataFrames: Advanced Analytics
 
-This notebook covers **Concepts #21–#30** of the Databricks learning path.
+ This notebook covers **Concepts #21–#30** of the Databricks learning path.
 
-| # | Concept | Level |
-|---|---------|-------|
-| 21 | DataFrame API — Core Operations | Easy |
-| 22 | Temp Views & Global Temp Views | Easy |
-| 23 | Window Functions | Medium |
-| 24 | Complex Types — ARRAY, STRUCT, MAP | Medium |
-| 25 | Higher-Order Functions | Medium |
-| 26 | CTEs, PIVOT & Subqueries | Medium |
-| 27 | UDFs vs Native Functions | Medium |
-| 28 | VARIANT Type & Semi-Structured Data | Medium |
-| 29 | MERGE INTO & Upsert Patterns | Hard |
-| 30 | Table Constraints & Generated Columns | Medium |
+ | # | Concept | Level |
+ |---|---------|-------|
+ | 21 | DataFrame API — Core Operations | Easy |
+ | 22 | Temp Views & Global Temp Views | Easy |
+ | 23 | Window Functions | Medium |
+ | 24 | Complex Types — ARRAY, STRUCT, MAP | Medium |
+ | 25 | Higher-Order Functions | Medium |
+ | 26 | CTEs, PIVOT & Subqueries | Medium |
+ | 27 | UDFs vs Native Functions | Medium |
+ | 28 | VARIANT Type & Semi-Structured Data | Medium |
+ | 29 | MERGE INTO & Upsert Patterns | Hard |
+ | 30 | Table Constraints & Generated Columns | Medium |
 
-**Scenario:** *RetailCo* — an ecommerce company managing customers, products, orders, and event logs.
+ **Scenario:** *RetailCo* — an ecommerce company managing customers, products, orders, and event logs.
 
-**Setup:** All synthetic data is generated in-cell. No external files required.
+ **Setup:** All synthetic data is generated in-cell. No external files required.
 
+```python
 
-## 0 — Environment Setup & Synthetic Data Generation
+```
 
-Create all datasets used across the notebook.
+ ## 0 — Environment Setup & Synthetic Data Generation
+
+ Create all datasets used across the notebook.
 
 ```python
 
@@ -211,12 +214,15 @@ print("\n--- All datasets created ---")
 
 ```
 
+```python
 
----
-## Concept 21 — DataFrame API: Core Operations
+```
 
-Covers: `select`, `filter`, `withColumn`, `groupBy`, `agg`, `join` with method chaining.
-Also demonstrates DataFrame API vs Spark SQL equivalence.
+ ---
+ ## Concept 21 — DataFrame API: Core Operations
+
+ Covers: `select`, `filter`, `withColumn`, `groupBy`, `agg`, `join` with method chaining.
+ Also demonstrates DataFrame API vs Spark SQL equivalence.
 
 ```python
 
@@ -303,13 +309,16 @@ orders_df \
 
 ```
 
+```python
 
----
-## Concept 22 — Temp Views & Global Temp Views
+```
 
-- **Temp View:** scoped to the SparkSession (notebook-level)
-- **Global Temp View:** accessible across notebooks on the same cluster (via `global_temp` database)
-- Neither persists across cluster restarts
+ ---
+ ## Concept 22 — Temp Views & Global Temp Views
+
+ - **Temp View:** scoped to the SparkSession (notebook-level)
+ - **Global Temp View:** accessible across notebooks on the same cluster (via `global_temp` database)
+ - Neither persists across cluster restarts
 
 ```python
 
@@ -374,11 +383,14 @@ print("=" * 60)
 
 ```
 
+```python
 
----
-## Concept 23 — Window Functions
+```
 
-Using retail orders: rank products by revenue, running totals, LAG/LEAD for trend analysis.
+ ---
+ ## Concept 23 — Window Functions
+
+ Using retail orders: rank products by revenue, running totals, LAG/LEAD for trend analysis.
 
 ```python
 
@@ -475,11 +487,14 @@ spark.sql("""
 
 ```
 
+```python
 
----
-## Concept 24 — Complex Types: ARRAY, STRUCT, MAP
+```
 
-Nested data: explode arrays, access struct fields, query maps. Scenario: flattening API event logs.
+ ---
+ ## Concept 24 — Complex Types: ARRAY, STRUCT, MAP
+
+ Nested data: explode arrays, access struct fields, query maps. Scenario: flattening API event logs.
 
 ```python
 
@@ -572,12 +587,15 @@ df_map_exploded.show(10, truncate=False)
 
 ```
 
+```python
 
----
-## Concept 25 — Higher-Order Functions
+```
 
-Array functions: `transform()`, `filter()`, `exists()`, `aggregate()`.
-Benchmarked against explode+groupBy and UDF approaches.
+ ---
+ ## Concept 25 — Higher-Order Functions
+
+ Array functions: `transform()`, `filter()`, `exists()`, `aggregate()`.
+ Benchmarked against explode+groupBy and UDF approaches.
 
 ```python
 
@@ -673,13 +691,16 @@ print(">> UDFs require row→Python→row serialization (slower).")
 
 ```
 
+```python
 
----
-## Concept 26 — CTEs, PIVOT & Subqueries
+```
 
-- **CTEs (WITH clauses):** Multi-step queries
-- **PIVOT:** Wide-format reshaping (sales by month by region)
-- **Correlated vs Uncorrelated subqueries**
+ ---
+ ## Concept 26 — CTEs, PIVOT & Subqueries
+
+ - **CTEs (WITH clauses):** Multi-step queries
+ - **PIVOT:** Wide-format reshaping (sales by month by region)
+ - **Correlated vs Uncorrelated subqueries**
 
 ```python
 
@@ -798,12 +819,15 @@ print(spark.sql(cte_query)._jdf.queryExecution().optimizedPlan().treeString())
 
 ```
 
+```python
 
----
-## Concept 27 — UDFs vs Native Functions
+```
 
-Compare: **Native Spark SQL** vs **Python UDF** vs **Pandas UDF (vectorized)**
-with timing benchmarks on a medium-sized dataset.
+ ---
+ ## Concept 27 — UDFs vs Native Functions
+
+ Compare: **Native Spark SQL** vs **Python UDF** vs **Pandas UDF (vectorized)**
+ with timing benchmarks on a medium-sized dataset.
 
 ```python
 
@@ -939,14 +963,17 @@ print(">> In all other cases, refactor logic to native Spark SQL functions.")
 
 ```
 
+```python
 
----
-## Concept 28 — VARIANT Type & Semi-Structured Data
+```
 
-**Note:** `VARIANT` type may not be available in Databricks Community Edition (requires DBR 15.3+ / Unity Catalog).
+ ---
+ ## Concept 28 — VARIANT Type & Semi-Structured Data
 
-- If available: demonstrates native VARIANT ingestion, path-based querying, schema-on-read
-- If not available: shows equivalent approaches using STRUCT and JSON string parsing
+ **Note:** `VARIANT` type may not be available in Databricks Community Edition (requires DBR 15.3+ / Unity Catalog).
+
+ - If available: demonstrates native VARIANT ingestion, path-based querying, schema-on-read
+ - If not available: shows equivalent approaches using STRUCT and JSON string parsing
 
 ```python
 
@@ -1094,11 +1121,14 @@ else:
 
 ```
 
+```python
 
----
-## Concept 29 — MERGE INTO & Upsert Patterns
+```
 
-Full MERGE syntax with Delta tables. Upsert customer dimension table with MATCHED update/delete and NOT MATCHED insert.
+ ---
+ ## Concept 29 — MERGE INTO & Upsert Patterns
+
+ Full MERGE syntax with Delta tables. Upsert customer dimension table with MATCHED update/delete and NOT MATCHED insert.
 
 ```python
 
@@ -1107,10 +1137,8 @@ print("CONCEPT 29: MERGE INTO & Upsert Patterns")
 print("=" * 60)
 
 # --- Create Delta tables for the MERGE demo ---
-delta_output_path = "/tmp/retailco_merge_demo"
-
 # Clean up any prior runs
-dbutils.fs.rm(delta_output_path, True)
+spark.sql("DROP TABLE IF EXISTS default.customer_dim")
 print("Cleaned up prior output location")
 
 # --- Step 1: Create the target dimension table (customer_dim) ---
@@ -1128,7 +1156,7 @@ target_df = customers_df \
 target_df.write \
     .format("delta") \
     .mode("overwrite") \
-    .saveAsTable("customer_dim")
+    .saveAsTable("default.customer_dim")
 
 print("customer_dim table created")
 spark.table("customer_dim").select("customer_id", "name", "region", "loyalty_tier", "is_active").show(5)
@@ -1241,14 +1269,17 @@ except Exception as e:
 
 ```
 
+```python
 
----
-## Concept 30 — Table Constraints & Generated Columns
+```
 
-- **CHECK constraints:** Validate data on write
-- **NOT NULL constraints:** Enforce required columns
-- **PRIMARY KEY:** Informational only (not enforced by Delta)
-- **Generated columns:** Auto-computed from expressions
+ ---
+ ## Concept 30 — Table Constraints & Generated Columns
+
+ - **CHECK constraints:** Validate data on write
+ - **NOT NULL constraints:** Enforce required columns
+ - **PRIMARY KEY:** Informational only (not enforced by Delta)
+ - **Generated columns:** Auto-computed from expressions
 
 ```python
 
@@ -1256,8 +1287,8 @@ print("=" * 60)
 print("CONCEPT 30: Table Constraints & Generated Columns")
 print("=" * 60)
 
-delta_path = "/tmp/retailco_constraints_demo/"
-dbutils.fs.rm(delta_path, True)
+spark.sql("DROP TABLE IF EXISTS default.product_catalog")
+spark.sql("DROP TABLE IF EXISTS default.orders_with_metrics")
 
 # ==========================================================================
 # 1. CREATE TABLE with CHECK, NOT NULL, and Generated Columns
@@ -1284,7 +1315,6 @@ spark.sql("""
         CONSTRAINT valid_sku_prefix CHECK (sku LIKE 'SKU-%')
     )
     USING delta
-    LOCATION '/tmp/retailco_constraints_demo/product_catalog'
 """)
 print("product_catalog table created with constraints")
 
@@ -1438,7 +1468,6 @@ spark.sql("""
         CONSTRAINT reasonable_tax CHECK (tax_rate BETWEEN 0 AND 0.25)
     )
     USING delta
-    LOCATION '/tmp/retailco_constraints_demo/orders_with_metrics'
 """)
 
 spark.sql("""
@@ -1470,38 +1499,43 @@ print("=" * 60)
 
 ```
 
+```python
 
----
-## Summary & Self-Assessment Checklist
+```
 
-### Concepts Covered (#21–#30)
+ ---
+ ## Summary & Self-Assessment Checklist
 
-| # | Concept | Key Takeaways |
-|---|---------|---------------|
-| 21 | DataFrame API Core | `select`, `filter`, `withColumn`, `groupBy`, `agg`, `join` — method chaining; equivalent physical plan to Spark SQL |
-| 22 | Temp/Global Temp Views | Temp = session scope; Global Temp = cross-notebook via `global_temp.`; neither persists across cluster restart |
-| 23 | Window Functions | `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `LAG`, `LEAD`, running totals with `SUM OVER` and frame clauses |
-| 24 | Complex Types | `ARRAY` → `explode`/`posexplode`; `STRUCT` → dot & bracket access; `MAP` → key/value access, flatten nested JSON |
-| 25 | Higher-Order Functions | `transform`, `filter`, `exists`, `aggregate` — avoid shuffle vs explode+groupBy; faster than UDFs |
-| 26 | CTEs, PIVOT, Subqueries | `WITH` clauses for multi-step queries; `PIVOT` for wide-format; correlated vs uncorrelated subqueries |
-| 27 | UDFs vs Native | Native (JVM, columnar) > Pandas UDF (vectorized Arrow) > Python UDF (row-by-row); use native when possible |
-| 28 | VARIANT Type | Native binary semi-structured format; schema-on-read; path-based access; alternatives: STRUCT, JSON string parsing |
-| 29 | MERGE INTO | Full upsert: `WHEN MATCHED UPDATE/DELETE`, `WHEN NOT MATCHED INSERT`; clause ordering matters; write amplification |
-| 30 | Constraints & Generated | `CHECK`, `NOT NULL` enforced on write; `PRIMARY KEY` informational only; generated columns auto-computed |
+ ### Concepts Covered (#21–#30)
 
-### Self-Assessment Questions
+ | # | Concept | Key Takeaways |
+ |---|---------|---------------|
+ | 21 | DataFrame API Core | `select`, `filter`, `withColumn`, `groupBy`, `agg`, `join` — method chaining; equivalent physical plan to Spark SQL |
+ | 22 | Temp/Global Temp Views | Temp = session scope; Global Temp = cross-notebook via `global_temp.`; neither persists across cluster restart |
+ | 23 | Window Functions | `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `LAG`, `LEAD`, running totals with `SUM OVER` and frame clauses |
+ | 24 | Complex Types | `ARRAY` → `explode`/`posexplode`; `STRUCT` → dot & bracket access; `MAP` → key/value access, flatten nested JSON |
+ | 25 | Higher-Order Functions | `transform`, `filter`, `exists`, `aggregate` — avoid shuffle vs explode+groupBy; faster than UDFs |
+ | 26 | CTEs, PIVOT, Subqueries | `WITH` clauses for multi-step queries; `PIVOT` for wide-format; correlated vs uncorrelated subqueries |
+ | 27 | UDFs vs Native | Native (JVM, columnar) > Pandas UDF (vectorized Arrow) > Python UDF (row-by-row); use native when possible |
+ | 28 | VARIANT Type | Native binary semi-structured format; schema-on-read; path-based access; alternatives: STRUCT, JSON string parsing |
+ | 29 | MERGE INTO | Full upsert: `WHEN MATCHED UPDATE/DELETE`, `WHEN NOT MATCHED INSERT`; clause ordering matters; write amplification |
+ | 30 | Constraints & Generated | `CHECK`, `NOT NULL` enforced on write; `PRIMARY KEY` informational only; generated columns auto-computed |
 
-- [ ] Can you write a chained DataFrame transformation with `select`, `filter`, `withColumn`, `groupBy`, and `agg`?
-- [ ] Can you explain when to use a Global Temp View over a Temp View?
-- [ ] Can you use `ROW_NUMBER`, `RANK`, and `DENSE_RANK` with window partitions?
-- [ ] Can you flatten a `STRUCT` field deep inside an `ARRAY<MAP<STRING, STRUCT>>` ?
-- [ ] Can you use `transform()` and `filter()` on an array column to clean data without exploding?
-- [ ] Can you write a CTE with three chained steps?
-- [ ] Can you compare native Spark, Python UDF, and Pandas UDF performance?
-- [ ] Can you explain VARIANT vs JSON string vs STRUCT for semi-structured data?
-- [ ] Can you write a full MERGE INTO with WHEN MATCHED update/delete and WHEN NOT MATCHED insert?
-- [ ] Can you create a table with CHECK, NOT NULL, DEFAULT, and GENERATED ALWAYS AS constraints?
+ ### Self-Assessment Questions
 
----
-*End of Notebook — Databricks SQL & DataFrames Concepts #21–#30*
+ - [ ] Can you write a chained DataFrame transformation with `select`, `filter`, `withColumn`, `groupBy`, and `agg`?
+ - [ ] Can you explain when to use a Global Temp View over a Temp View?
+ - [ ] Can you use `ROW_NUMBER`, `RANK`, and `DENSE_RANK` with window partitions?
+ - [ ] Can you flatten a `STRUCT` field deep inside an `ARRAY<MAP<STRING, STRUCT>>` ?
+ - [ ] Can you use `transform()` and `filter()` on an array column to clean data without exploding?
+ - [ ] Can you write a CTE with three chained steps?
+ - [ ] Can you compare native Spark, Python UDF, and Pandas UDF performance?
+ - [ ] Can you explain VARIANT vs JSON string vs STRUCT for semi-structured data?
+ - [ ] Can you write a full MERGE INTO with WHEN MATCHED update/delete and WHEN NOT MATCHED insert?
+ - [ ] Can you create a table with CHECK, NOT NULL, DEFAULT, and GENERATED ALWAYS AS constraints?
 
+ ---
+ *End of Notebook — Databricks SQL & DataFrames Concepts #21–#30*
+
+```python
+```

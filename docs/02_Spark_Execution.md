@@ -1,33 +1,36 @@
-# Notebook 02: Spark Execution Engine
+ # Notebook 02: Spark Execution Engine
 
-**Concepts #11-#20** — How the Spark engine works under the hood
+ **Concepts #11-#20** — How the Spark engine works under the hood
 
-| Concept | Topic | Difficulty |
-|---------|-------|------------|
-| 11 | Lazy Evaluation & Actions | Easy |
-| 12 | Photon Engine | Easy |
-| 13 | Catalyst Optimizer & Query Plans | Medium |
-| 14 | Adaptive Query Execution (AQE) | Medium |
-| 15 | Shuffle Operations | Medium |
-| 16 | Join Strategies | Medium |
-| 17 | Reading the Spark UI | Medium |
-| 18 | Partitioning & Parallelism | Medium |
-| 19 | Data Skew: Detection & Mitigation | Hard |
-| 20 | Memory Management & Spill | Hard |
+ | Concept | Topic | Difficulty |
+ |---------|-------|------------|
+ | 11 | Lazy Evaluation & Actions | Easy |
+ | 12 | Photon Engine | Easy |
+ | 13 | Catalyst Optimizer & Query Plans | Medium |
+ | 14 | Adaptive Query Execution (AQE) | Medium |
+ | 15 | Shuffle Operations | Medium |
+ | 16 | Join Strategies | Medium |
+ | 17 | Reading the Spark UI | Medium |
+ | 18 | Partitioning & Parallelism | Medium |
+ | 19 | Data Skew: Detection & Mitigation | Hard |
+ | 20 | Memory Management & Spill | Hard |
 
-**Designed for:** Databricks Community Edition (single node, no Photon, no serverless)
+ **Designed for:** Databricks Community Edition (single node, no Photon, no serverless)
 
-**Datasets:** Synthetic data generated in-notebook + `/databricks-datasets/` samples
+ **Datasets:** Synthetic data generated in-notebook + `/databricks-datasets/` samples
 
+```python
 
-## Setup: Generate Synthetic Datasets
+```
 
-We create all data upfront so every concept has what it needs:
-- **sales_df** — 1M rows of sales transactions (fact table)
-- **products_df** — 1K unique products (dimension table, small)
-- **customers_df** — 500K customers (large dimension)
-- **skewed_sales_df** — deliberately skewed for skew demos
-- **orders_df** — 500K orders with many columns for pruning demos
+ ## Setup: Generate Synthetic Datasets
+
+ We create all data upfront so every concept has what it needs:
+ - **sales_df** — 1M rows of sales transactions (fact table)
+ - **products_df** — 1K unique products (dimension table, small)
+ - **customers_df** — 500K customers (large dimension)
+ - **skewed_sales_df** — deliberately skewed for skew demos
+ - **orders_df** — 500K orders with many columns for pruning demos
 
 ```python
 
@@ -48,8 +51,11 @@ print(f"Default parallelism: {spark.sparkContext.defaultParallelism}")
 
 ```
 
+```python
 
-### Generate Products (1K — small dimension table)
+```
+
+ ### Generate Products (1K — small dimension table)
 
 ```python
 
@@ -74,8 +80,11 @@ products_df.show(5, truncate=False)
 
 ```
 
+```python
 
-### Generate Sales (1M rows — large fact table)
+```
+
+ ### Generate Sales (1M rows — large fact table)
 
 ```python
 
@@ -116,8 +125,11 @@ sales_df.show(5, truncate=False)
 
 ```
 
+```python
 
-### Generate Customers (500K — large dimension)
+```
+
+ ### Generate Customers (500K — large dimension)
 
 ```python
 
@@ -145,8 +157,11 @@ customers_df.show(5, truncate=False)
 
 ```
 
+```python
 
-### Generate Skewed Sales (for skew demonstrations)
+```
+
+ ### Generate Skewed Sales (for skew demonstrations)
 
 ```python
 
@@ -180,8 +195,11 @@ skewed_sales_df.groupBy("product_id").count().orderBy(col("count").desc()).show(
 
 ```
 
+```python
 
-### Generate Wide Orders (many columns for pruning demos)
+```
+
+ ### Generate Wide Orders (many columns for pruning demos)
 
 ```python
 
@@ -212,18 +230,24 @@ print(f"Orders: {orders_df.count()} rows, {len(orders_df.columns)} columns")
 
 ```
 
+```python
 
----
-## Concept 11: Lazy Evaluation & Actions [Easy]
+```
 
-**Key idea:** Transformations (`filter`, `select`, `groupBy`) build an execution plan but don't run until an **action** (`count`, `collect`, `show`, `write`) triggers execution.
+ ---
+ ## Concept 11: Lazy Evaluation & Actions [Easy]
 
-This is why Spark can optimize across your entire pipeline — it sees the full DAG before doing any work.
+ **Key idea:** Transformations (`filter`, `select`, `groupBy`) build an execution plan but don't run until an **action** (`count`, `collect`, `show`, `write`) triggers execution.
 
+ This is why Spark can optimize across your entire pipeline — it sees the full DAG before doing any work.
 
-### Transformation Chain (No Execution Yet)
+```python
 
-Watch — no Spark jobs fire for any of these lines:
+```
+
+ ### Transformation Chain (No Execution Yet)
+
+ Watch — no Spark jobs fire for any of these lines:
 
 ```python
 
@@ -242,8 +266,11 @@ print(f"Execution plan is built lazily — it's just a recipe, not executed.")
 
 ```
 
+```python
 
-### Now Trigger an Action — Execution Happens
+```
+
+ ### Now Trigger an Action — Execution Happens
 
 ```python
 
@@ -258,8 +285,11 @@ print(f"All transformations + the action ran in ONE optimized pipeline.")
 
 ```
 
+```python
 
-### Compare: Action vs No-Action Timing
+```
+
+ ### Compare: Action vs No-Action Timing
 
 ```python
 
@@ -286,23 +316,29 @@ print(f"With-action pipeline executed 5x in: {t1 - t0:.2f} seconds")
 
 ```
 
+```python
 
-### Common Transformations vs Actions
+```
 
-| Transformations (lazy) | Actions (trigger execution) |
-|------------------------|-----------------------------|
-| `filter()`, `where()` | `count()`, `first()` |
-| `select()`, `drop()` | `collect()`, `take(n)` |
-| `groupBy()`, `agg()` | `show()`, `head()` |
-| `join()`, `union()` | `foreach()`, `foreachPartition()` |
-| `orderBy()`, `sort()` | `write`, `saveAsTable` |
-| `withColumn()` | `toPandas()` (be careful!) |
-| `distinct()`, `dropDuplicates()` | `reduce()`, `fold()` |
+ ### Common Transformations vs Actions
 
+ | Transformations (lazy) | Actions (trigger execution) |
+ |------------------------|-----------------------------|
+ | `filter()`, `where()` | `count()`, `first()` |
+ | `select()`, `drop()` | `collect()`, `take(n)` |
+ | `groupBy()`, `agg()` | `show()`, `head()` |
+ | `join()`, `union()` | `foreach()`, `foreachPartition()` |
+ | `orderBy()`, `sort()` | `write`, `saveAsTable` |
+ | `withColumn()` | `toPandas()` (be careful!) |
+ | `distinct()`, `dropDuplicates()` | `reduce()`, `fold()` |
 
-### Execution Plan Built Lazily
+```python
 
-The plan is built step-by-step during transformations. `explain()` lets you peek at it without executing:
+```
+
+ ### Execution Plan Built Lazily
+
+ The plan is built step-by-step during transformations. `explain()` lets you peek at it without executing:
 
 ```python
 
@@ -322,35 +358,44 @@ q.explain()
 
 ```
 
+```python
 
-**Key takeaway:** Lazy evaluation is Spark's superpower. It lets the Catalyst optimizer rearrange, combine, and optimize your pipeline before a single byte is read. You pay the cost only when you ask for results.
+```
 
+ **Key takeaway:** Lazy evaluation is Spark's superpower. It lets the Catalyst optimizer rearrange, combine, and optimize your pipeline before a single byte is read. You pay the cost only when you ask for results.
 
----
-## Concept 12: Photon Engine [Easy]
+```python
 
-**Photon** is Databricks' native vectorized query engine written in C++. It replaces parts of Spark's JVM-based execution with a high-performance columnar engine.
+```
 
-**Community Edition limitation:** Photon is NOT available. We explain the architecture and concepts here.
+ ---
+ ## Concept 12: Photon Engine [Easy]
 
-### What Photon Does
-- **Vectorized execution:** Processes data in batches (columnar batches) rather than row-by-row
-- **Native C++:** Bypasses JVM overhead for CPU-bound operations
-- **SIMD instructions:** Uses modern CPU vector instructions for parallel processing within a core
-- **Memory-efficient:** Better cache locality, fewer allocations
+ **Photon** is Databricks' native vectorized query engine written in C++. It replaces parts of Spark's JVM-based execution with a high-performance columnar engine.
 
-### Which Ops Benefit Most?
-| High Photon Impact | Moderate Impact | Low Impact |
-|--------------------|-----------------|------------|
-| Filter, Project (select) | Aggregations | I/O-bound reads |
-| Joins (hash joins) | Windows | Small data ops |
-| Sorting | Grouped aggregations | Metadata ops |
-| Expressions / UDFs | Union, Intersect | File listing |
+ **Community Edition limitation:** Photon is NOT available. We explain the architecture and concepts here.
 
+ ### What Photon Does
+ - **Vectorized execution:** Processes data in batches (columnar batches) rather than row-by-row
+ - **Native C++:** Bypasses JVM overhead for CPU-bound operations
+ - **SIMD instructions:** Uses modern CPU vector instructions for parallel processing within a core
+ - **Memory-efficient:** Better cache locality, fewer allocations
 
-### Checking Photon Status
+ ### Which Ops Benefit Most?
+ | High Photon Impact | Moderate Impact | Low Impact |
+ |--------------------|-----------------|------------|
+ | Filter, Project (select) | Aggregations | I/O-bound reads |
+ | Joins (hash joins) | Windows | Small data ops |
+ | Sorting | Grouped aggregations | Metadata ops |
+ | Expressions / UDFs | Union, Intersect | File listing |
 
-In a full Databricks platform, you can check if Photon is active:
+```python
+
+```
+
+ ### Checking Photon Status
+
+ In a full Databricks platform, you can check if Photon is active:
 
 ```python
 
@@ -371,35 +416,41 @@ except Exception:
 
 ```
 
+```python
 
-### How Photon Changes Execution
-
-Without Photon, Spark runs this pipeline:
-```
-Scan → Filter (JVM) → Project (JVM) → Aggregate (JVM) → Sort (JVM) → Output
 ```
 
-With Photon, the same pipeline becomes:
+ ### How Photon Changes Execution
+
+ Without Photon, Spark runs this pipeline:
+ ```
+ Scan → Filter (JVM) → Project (JVM) → Aggregate (JVM) → Sort (JVM) → Output
+ ```
+
+ With Photon, the same pipeline becomes:
+ ```
+ Scan → [Photon: Filter → Project → Aggregate → Sort] → Output
+ ```
+
+ Photon replaces the entire shaded region with a single C++ pipeline operating on columnar batches.
+
+ ### Performance Comparison (Conceptual)
+
+ Typical improvements from Photon (from Databricks benchmarks):
+ - **SQL queries:** 2-8x faster
+ - **ETL pipelines:** 1.5-3x faster
+ - **Joins & aggregations:** 3-5x faster
+ - **Scan-heavy workloads:** 1.5-2x faster
+
+ > In Community Edition, we run without Photon. The concepts of query optimization still apply — Photon just makes them even faster.
+
+```python
+
 ```
-Scan → [Photon: Filter → Project → Aggregate → Sort] → Output
-```
 
-Photon replaces the entire shaded region with a single C++ pipeline operating on columnar batches.
+ ### Simulated Comparison: Row-at-a-Time vs Batch
 
-### Performance Comparison (Conceptual)
-
-Typical improvements from Photon (from Databricks benchmarks):
-- **SQL queries:** 2-8x faster
-- **ETL pipelines:** 1.5-3x faster
-- **Joins & aggregations:** 3-5x faster
-- **Scan-heavy workloads:** 1.5-2x faster
-
-> In Community Edition, we run without Photon. The concepts of query optimization still apply — Photon just makes them even faster.
-
-
-### Simulated Comparison: Row-at-a-Time vs Batch
-
-Python simulation to illustrate why batch/vectorized processing is faster:
+ Python simulation to illustrate why batch/vectorized processing is faster:
 
 ```python
 
@@ -430,23 +481,32 @@ print(f"\nThis is a simplified illustration. Photon uses C++ with SIMD — much 
 
 ```
 
+```python
 
-**Key takeaway:** Photon is Databricks' C++ vectorized engine. While not available in Community Edition, understanding its role helps you appreciate query optimization and why certain patterns (filter early, use columnar operations) matter regardless of engine.
+```
 
+ **Key takeaway:** Photon is Databricks' C++ vectorized engine. While not available in Community Edition, understanding its role helps you appreciate query optimization and why certain patterns (filter early, use columnar operations) matter regardless of engine.
 
----
-## Concept 13: Catalyst Optimizer & Query Plans [Medium]
+```python
 
-**Catalyst** is Spark's query optimizer. It takes your DataFrame/SQL code and produces an optimized execution plan through multiple phases:
-1. **Parsed Logical Plan** — raw AST from your code
-2. **Analyzed Logical Plan** — resolved table/column references
-3. **Optimized Logical Plan** — rule-based optimizations applied
-4. **Physical Plan** — how it will actually execute (with costs)
+```
 
-`df.explain(True)` shows all four phases. `df.explain()` shows just the physical plan.
+ ---
+ ## Concept 13: Catalyst Optimizer & Query Plans [Medium]
 
+ **Catalyst** is Spark's query optimizer. It takes your DataFrame/SQL code and produces an optimized execution plan through multiple phases:
+ 1. **Parsed Logical Plan** — raw AST from your code
+ 2. **Analyzed Logical Plan** — resolved table/column references
+ 3. **Optimized Logical Plan** — rule-based optimizations applied
+ 4. **Physical Plan** — how it will actually execute (with costs)
 
-### Full Plan Walkthrough with `explain(True)`
+ `df.explain(True)` shows all four phases. `df.explain()` shows just the physical plan.
+
+```python
+
+```
+
+ ### Full Plan Walkthrough with `explain(True)`
 
 ```python
 
@@ -468,33 +528,39 @@ query.explain(True)
 
 ```
 
+```python
 
-### Understanding the Four Plan Phases
-
-**1. Parsed Logical Plan** — Raw tree from your code:
-```
-Limit
- └── Sort (revenue DESC)
-      └── Filter (revenue > 100)
-           └── Project [sale_id, product_name, ...]
-                └── Join (product_id)
-                     ├── Filter (category = Electronics)
-                     │    └── Relation[products]
-                     └── Filter (quantity > 2)
-                          └── Filter (region = West)
-                               └── Relation[sales]
 ```
 
-**2. Analyzed Logical Plan** — Resolves table/column names using catalog
+ ### Understanding the Four Plan Phases
 
-**3. Optimized Logical Plan** — Catalyst applies rule-based optimizations
+ **1. Parsed Logical Plan** — Raw tree from your code:
+ ```
+ Limit
+  └── Sort (revenue DESC)
+       └── Filter (revenue > 100)
+            └── Project [sale_id, product_name, ...]
+                 └── Join (product_id)
+                      ├── Filter (category = Electronics)
+                      │    └── Relation[products]
+                      └── Filter (quantity > 2)
+                           └── Filter (region = West)
+                                └── Relation[sales]
+ ```
 
-**4. Physical Plan** — Cost-based choice of join strategy, scan type, etc.
+ **2. Analyzed Logical Plan** — Resolves table/column names using catalog
 
+ **3. Optimized Logical Plan** — Catalyst applies rule-based optimizations
 
-### Predicate Pushdown in Action
+ **4. Physical Plan** — Cost-based choice of join strategy, scan type, etc.
 
-Catalyst pushes filters as close to the data source as possible — filtering early means less data to shuffle/sort.
+```python
+
+```
+
+ ### Predicate Pushdown in Action
+
+ Catalyst pushes filters as close to the data source as possible — filtering early means less data to shuffle/sort.
 
 ```python
 
@@ -511,10 +577,13 @@ pred_push_query.explain("extended")
 
 ```
 
+```python
 
-### Column Pruning
+```
 
-Catalyst only reads the columns you actually need. Wide tables benefit massively:
+ ### Column Pruning
+
+ Catalyst only reads the columns you actually need. Wide tables benefit massively:
 
 ```python
 
@@ -531,10 +600,13 @@ pruned_query.explain("extended")
 
 ```
 
+```python
 
-### SQL Equivalent — Same Optimizations
+```
 
-DataFrame API and Spark SQL go through the same Catalyst optimizer:
+ ### SQL Equivalent — Same Optimizations
+
+ DataFrame API and Spark SQL go through the same Catalyst optimizer:
 
 ```python
 
@@ -560,10 +632,13 @@ sql_query.explain("extended")
 
 ```
 
+```python
 
-### Benchmark: Optimization in Action
+```
 
-Timing a query with and without early filtering:
+ ### Benchmark: Optimization in Action
+
+ Timing a query with and without early filtering:
 
 ```python
 
@@ -598,21 +673,30 @@ print("\nCatalyst optimizes both to similar plans, but explicit early filtering 
 
 ```
 
+```python
 
-**Key takeaway:** Catalyst optimizes your query in 4 phases. Predicate pushdown and column pruning are two of its most impactful optimizations. Always filter early, select only needed columns, and review plans with `explain()`.
+```
 
+ **Key takeaway:** Catalyst optimizes your query in 4 phases. Predicate pushdown and column pruning are two of its most impactful optimizations. Always filter early, select only needed columns, and review plans with `explain()`.
 
----
-## Concept 14: Adaptive Query Execution (AQE) [Medium]
+```python
 
-**AQE** re-optimizes the query plan at runtime based on actual data statistics — not just estimates. Key features:
-1. **Dynamically coalesce shuffle partitions** — reduce partitions when data is small
-2. **Dynamically switch join strategies** — switch to broadcast if data is small enough
-3. **Dynamically optimize skew joins** — split skewed partitions
-4. **Dynamically detect empty partitions** — skip empty partitions
+```
 
+ ---
+ ## Concept 14: Adaptive Query Execution (AQE) [Medium]
 
-### AQE Configuration
+ **AQE** re-optimizes the query plan at runtime based on actual data statistics — not just estimates. Key features:
+ 1. **Dynamically coalesce shuffle partitions** — reduce partitions when data is small
+ 2. **Dynamically switch join strategies** — switch to broadcast if data is small enough
+ 3. **Dynamically optimize skew joins** — split skewed partitions
+ 4. **Dynamically detect empty partitions** — skip empty partitions
+
+```python
+
+```
+
+ ### AQE Configuration
 
 ```python
 
@@ -630,10 +714,13 @@ print('  spark.conf.set("spark.sql.adaptive.enabled", "true")')
 
 ```
 
+```python
 
-### Demonstrating Coalescing Shuffle Partitions
+```
 
-AQE can reduce the 200 shuffle partitions to far fewer when data volume is small:
+ ### Demonstrating Coalescing Shuffle Partitions
+
+ AQE can reduce the 200 shuffle partitions to far fewer when data volume is small:
 
 ```python
 
@@ -678,10 +765,13 @@ spark.conf.set("spark.sql.adaptive.localShuffleReader.enabled", "true")
 
 ```
 
+```python
 
-### Runtime Plan Changes with AQE
+```
 
-AQE can change the plan mid-execution. For instance, a sort-merge join might become a broadcast join if the actual data is small enough:
+ ### Runtime Plan Changes with AQE
+
+ AQE can change the plan mid-execution. For instance, a sort-merge join might become a broadcast join if the actual data is small enough:
 
 ```python
 
@@ -704,10 +794,13 @@ print("\n=== With AQE — may switch join strategy at runtime ===")
 
 ```
 
+```python
 
-### AQE and Empty Partitions
+```
 
-AQE can detect and skip empty partitions, avoiding wasted task scheduling:
+ ### AQE and Empty Partitions
+
+ AQE can detect and skip empty partitions, avoiding wasted task scheduling:
 
 ```python
 
@@ -726,23 +819,32 @@ print("AQE can detect empty partitions and optimize the plan at runtime.")
 
 ```
 
+```python
 
-**Key takeaway:** AQE is a game-changer — it adapts the plan at runtime based on actual data stats. Key features are coalescing shuffle partitions, switching join strategies, handling skew, and skipping empty partitions. It's enabled by default in Databricks Runtime.
+```
 
+ **Key takeaway:** AQE is a game-changer — it adapts the plan at runtime based on actual data stats. Key features are coalescing shuffle partitions, switching join strategies, handling skew, and skipping empty partitions. It's enabled by default in Databricks Runtime.
 
----
-## Concept 15: Shuffle Operations [Medium]
+```python
 
-**Shuffle** is Spark's mechanism for redistributing data across partitions. Operations that require data from multiple partitions trigger a shuffle:
-- `groupBy()`, `agg()` — data must be co-located by key
-- `join()` — matching keys must be in the same partition
-- `distinct()` — duplicates must be co-located
-- `repartition()` — explicit redistribution
-- `orderBy()` — total ordering requires shuffle
-- Window functions (with `PARTITION BY`) — rows in same partition need co-location
+```
 
+ ---
+ ## Concept 15: Shuffle Operations [Medium]
 
-### Operations That Trigger Shuffle
+ **Shuffle** is Spark's mechanism for redistributing data across partitions. Operations that require data from multiple partitions trigger a shuffle:
+ - `groupBy()`, `agg()` — data must be co-located by key
+ - `join()` — matching keys must be in the same partition
+ - `distinct()` — duplicates must be co-located
+ - `repartition()` — explicit redistribution
+ - `orderBy()` — total ordering requires shuffle
+ - Window functions (with `PARTITION BY`) — rows in same partition need co-location
+
+```python
+
+```
+
+ ### Operations That Trigger Shuffle
 
 ```python
 
@@ -781,8 +883,11 @@ print("   - foreachPartition()")
 
 ```
 
+```python
 
-### Shuffle Read/Write with Different Partition Counts
+```
+
+ ### Shuffle Read/Write with Different Partition Counts
 
 ```python
 
@@ -817,10 +922,13 @@ spark.conf.set("spark.sql.shuffle.partitions", "200")
 
 ```
 
+```python
 
-### Shuffle Cost: Many Small Partitions vs Few Optimal Partitions
+```
 
-Each shuffle partition generates a task. Too many small partitions = task scheduling overhead. Too few = under-utilization.
+ ### Shuffle Cost: Many Small Partitions vs Few Optimal Partitions
+
+ Each shuffle partition generates a task. Too many small partitions = task scheduling overhead. Too few = under-utilization.
 
 ```python
 
@@ -844,24 +952,30 @@ print(f"  Guidance: sp.sql.shuffle.partitions = cluster_cores * 2 to 3")
 
 ```
 
+```python
 
-### Monitoring Shuffle in Spark UI
+```
 
-Navigate to the Spark UI (typically port 4040) to see:
-- **Stages tab** → Shuffle Read Size / Shuffle Write Size per stage
-- **SQL tab** → Each query's DAG with shuffle exchange nodes
-- **Executors tab** → Shuffle Read/Write Memory per executor
+ ### Monitoring Shuffle in Spark UI
 
-Key shuffle metrics to watch:
-- **Shuffle Write** — data serialized and written to local disk for other executors to read
-- **Shuffle Read** — data fetched from remote executors
-- **Shuffle Spill (Memory)** — data that didn't fit in memory during shuffle
-- **Shuffle Spill (Disk)** — data spilled to disk during shuffle
+ Navigate to the Spark UI (typically port 4040) to see:
+ - **Stages tab** → Shuffle Read Size / Shuffle Write Size per stage
+ - **SQL tab** → Each query's DAG with shuffle exchange nodes
+ - **Executors tab** → Shuffle Read/Write Memory per executor
 
-> On Community Edition (single node), shuffle is local but still involves disk I/O.
+ Key shuffle metrics to watch:
+ - **Shuffle Write** — data serialized and written to local disk for other executors to read
+ - **Shuffle Read** — data fetched from remote executors
+ - **Shuffle Spill (Memory)** — data that didn't fit in memory during shuffle
+ - **Shuffle Spill (Disk)** — data spilled to disk during shuffle
 
+ > On Community Edition (single node), shuffle is local but still involves disk I/O.
 
-### Monitoring Shuffle from Within Code
+```python
+
+```
+
+ ### Monitoring Shuffle from Within Code
 
 ```python
 
@@ -897,29 +1011,38 @@ print("  - Shuffle Read")
 
 ```
 
+```python
 
-**Key takeaway:** Shuffle is the most expensive operation in Spark. It involves serialization, disk I/O, and network transfer. Minimize shuffles by filtering early, choosing the right partition count, using broadcast joins for small tables, and leveraging AQE. Monitor shuffle via the Spark UI's SQL and Stages tabs.
+```
 
+ **Key takeaway:** Shuffle is the most expensive operation in Spark. It involves serialization, disk I/O, and network transfer. Minimize shuffles by filtering early, choosing the right partition count, using broadcast joins for small tables, and leveraging AQE. Monitor shuffle via the Spark UI's SQL and Stages tabs.
 
----
-## Concept 16: Join Strategies [Medium]
+```python
 
-Spark uses multiple join strategies. The optimizer (Catalyst + AQE) picks based on table sizes and hints:
+```
 
-| Strategy | When Used | Data Movement |
-|----------|-----------|---------------|
-| **Broadcast Hash Join (BHJ)** | One side < `autoBroadcastJoinThreshold` (10MB default) | Small table sent to all executors — NO shuffle |
-| **Sort-Merge Join (SMJ)** | Both sides large | Both sides shuffled by join key, then sorted and merged |
-| **Shuffle Hash Join (SHJ)** | One side 3x smaller than other | Both sides shuffled, smaller side hashed |
-| **Broadcast Nested Loop Join** | No equi-join condition | Small side broadcast, nested loop |
-| **Cartesian Product** | Cross join | Very expensive — avoid |
+ ---
+ ## Concept 16: Join Strategies [Medium]
 
-In practice, BHJ and SMJ cover 99% of cases.
+ Spark uses multiple join strategies. The optimizer (Catalyst + AQE) picks based on table sizes and hints:
 
+ | Strategy | When Used | Data Movement |
+ |----------|-----------|---------------|
+ | **Broadcast Hash Join (BHJ)** | One side < `autoBroadcastJoinThreshold` (10MB default) | Small table sent to all executors — NO shuffle |
+ | **Sort-Merge Join (SMJ)** | Both sides large | Both sides shuffled by join key, then sorted and merged |
+ | **Shuffle Hash Join (SHJ)** | One side 3x smaller than other | Both sides shuffled, smaller side hashed |
+ | **Broadcast Nested Loop Join** | No equi-join condition | Small side broadcast, nested loop |
+ | **Cartesian Product** | Cross join | Very expensive — avoid |
 
-### Strategy 1: Broadcast Hash Join (Best for Small + Large)
+ In practice, BHJ and SMJ cover 99% of cases.
 
-The small table is sent to every executor. The large table never needs to shuffle.
+```python
+
+```
+
+ ### Strategy 1: Broadcast Hash Join (Best for Small + Large)
+
+ The small table is sent to every executor. The large table never needs to shuffle.
 
 ```python
 
@@ -949,8 +1072,11 @@ auto_join.explain()
 
 ```
 
+```python
 
-### Strategy 2: Sort-Merge Join (For Two Large Tables)
+```
+
+ ### Strategy 2: Sort-Merge Join (For Two Large Tables)
 
 ```python
 
@@ -972,8 +1098,11 @@ print(f"Sort-merge join time: {t1 - t0:.2f}s")
 
 ```
 
+```python
 
-### Controlling the Broadcast Threshold
+```
+
+ ### Controlling the Broadcast Threshold
 
 ```python
 
@@ -998,8 +1127,11 @@ spark.conf.set("spark.sql.autoBroadcastJoinThreshold", broadcast_threshold)
 
 ```
 
+```python
 
-### Comparing Join Strategies Performance
+```
+
+ ### Comparing Join Strategies Performance
 
 ```python
 
@@ -1036,47 +1168,59 @@ spark.conf.set("spark.sql.autoBroadcastJoinThreshold", broadcast_threshold)
 
 ```
 
-
-### Join Strategy Selection Rules
+```python
 
 ```
-1. Is either side small (< autoBroadcastJoinThreshold)?
-   YES → Broadcast Hash Join
-   NO  → Continue to step 2
 
-2. Can AQE optimize at runtime?
-   Small enough → Convert to Broadcast Hash Join
-   Skew detected → Split skewed partition
+ ### Join Strategy Selection Rules
 
-3. Default: Sort-Merge Join
-   Both sides shuffled, sorted, merged
+ ```
+ 1. Is either side small (< autoBroadcastJoinThreshold)?
+    YES → Broadcast Hash Join
+    NO  → Continue to step 2
+
+ 2. Can AQE optimize at runtime?
+    Small enough → Convert to Broadcast Hash Join
+    Skew detected → Split skewed partition
+
+ 3. Default: Sort-Merge Join
+    Both sides shuffled, sorted, merged
+ ```
+
+ **Pro tip:** Always `cache()` small dimension tables used in multiple joins. Explicitly `broadcast()` when you know a table is small but Catalyst might not.
+
+```python
+
 ```
 
-**Pro tip:** Always `cache()` small dimension tables used in multiple joins. Explicitly `broadcast()` when you know a table is small but Catalyst might not.
+ **Key takeaway:** Broadcast Hash Join is the fastest (no shuffle on large side). Sort-Merge Join handles large-large joins. Use `broadcast()` hint for small tables and tune `autoBroadcastJoinThreshold`. AQE can switch strategies at runtime.
 
+```python
 
-**Key takeaway:** Broadcast Hash Join is the fastest (no shuffle on large side). Sort-Merge Join handles large-large joins. Use `broadcast()` hint for small tables and tune `autoBroadcastJoinThreshold`. AQE can switch strategies at runtime.
+```
 
+ ---
+ ## Concept 17: Reading the Spark UI [Medium]
 
----
-## Concept 17: Reading the Spark UI [Medium]
+ The Spark UI is your primary observability tool. It has these key tabs:
 
-The Spark UI is your primary observability tool. It has these key tabs:
+ | Tab | Purpose | What to Look For |
+ |-----|---------|------------------|
+ | **Jobs** | All Spark jobs | Duration, stages per job, status |
+ | **Stages** | Individual stages | Task duration variance, shuffle size, spill |
+ | **Tasks** | Task-level detail | Skew (max >> median), GC time, errors |
+ | **Storage** | Cached RDDs/DataFrames | Cache size, partitions cached, memory used |
+ | **Environment** | Config & JARs | Verify settings took effect |
+ | **Executors** | Executor metrics | Memory used, tasks completed, shuffle I/O |
+ | **SQL** | Query DAG details | Plan visualization, metrics per node |
 
-| Tab | Purpose | What to Look For |
-|-----|---------|------------------|
-| **Jobs** | All Spark jobs | Duration, stages per job, status |
-| **Stages** | Individual stages | Task duration variance, shuffle size, spill |
-| **Tasks** | Task-level detail | Skew (max >> median), GC time, errors |
-| **Storage** | Cached RDDs/DataFrames | Cache size, partitions cached, memory used |
-| **Environment** | Config & JARs | Verify settings took effect |
-| **Executors** | Executor metrics | Memory used, tasks completed, shuffle I/O |
-| **SQL** | Query DAG details | Plan visualization, metrics per node |
+ > On Community Edition, the Spark UI is available at the URL printed by `spark.sparkContext.uiWebUrl`.
 
-> On Community Edition, the Spark UI is available at the URL printed by `spark.sparkContext.uiWebUrl`.
+```python
 
+```
 
-### Show the Spark UI URL
+ ### Show the Spark UI URL
 
 ```python
 
@@ -1090,11 +1234,17 @@ print(f"\nOpen this URL in your browser to follow along.")
 
 ```
 
+```python
 
-### Creating Queries That Generate Interesting UI Patterns
+```
 
+ ### Creating Queries That Generate Interesting UI Patterns
 
-**Query 1: Shuffle-heavy aggregation** — Look at the Stages tab for shuffle read/write
+```python
+
+```
+
+ **Query 1: Shuffle-heavy aggregation** — Look at the Stages tab for shuffle read/write
 
 ```python
 
@@ -1127,8 +1277,11 @@ In Spark UI → Jobs tab:
 
 ```
 
+```python
 
-**Query 2: Join with broadcast hint** — Compare SQL tab DAG to shuffle-heavy query
+```
+
+ **Query 2: Join with broadcast hint** — Compare SQL tab DAG to shuffle-heavy query
 
 ```python
 
@@ -1150,10 +1303,13 @@ In Spark UI → SQL tab:
 
 ```
 
+```python
 
-### Diagnosing a Slow Query from UI Metrics
+```
 
-Here's a decision tree for diagnosing issues using the Spark UI:
+ ### Diagnosing a Slow Query from UI Metrics
+
+ Here's a decision tree for diagnosing issues using the Spark UI:
 
 ```python
 
@@ -1196,8 +1352,11 @@ print("""
 
 ```
 
+```python
 
-### Generating UI Data: Run Several Diverse Queries
+```
+
+ ### Generating UI Data: Run Several Diverse Queries
 
 ```python
 
@@ -1226,26 +1385,35 @@ print("Compare the SQL tab entries for each query.")
 
 ```
 
+```python
 
-**Key takeaway:** The Spark UI is your diagnostic tool. The Jobs tab tells you what's slow. The Stages tab reveals why (skew, spill, shuffle size). The SQL tab shows the optimized plan visually. The Executors tab reveals memory/GC issues. Learn to navigate all tabs.
+```
 
+ **Key takeaway:** The Spark UI is your diagnostic tool. The Jobs tab tells you what's slow. The Stages tab reveals why (skew, spill, shuffle size). The SQL tab shows the optimized plan visually. The Executors tab reveals memory/GC issues. Learn to navigate all tabs.
 
----
-## Concept 18: Partitioning & Parallelism [Medium]
+```python
 
-**Partitions** are the fundamental unit of parallelism in Spark. Each partition = one task = one CPU core working on a subset of data.
+```
 
-Key settings:
-- `spark.sql.shuffle.partitions` (default 200) — partitions after shuffle
-- `spark.default.parallelism` — RDD operations default
-- `repartition(n)` — full shuffle to N partitions
-- `coalesce(n)` — reduce partitions WITHOUT shuffle (combine adjacent)
-- `spark.sql.files.maxPartitionBytes` — max bytes per partition when reading files
+ ---
+ ## Concept 18: Partitioning & Parallelism [Medium]
 
+ **Partitions** are the fundamental unit of parallelism in Spark. Each partition = one task = one CPU core working on a subset of data.
 
-### Partitions and Parallelism
+ Key settings:
+ - `spark.sql.shuffle.partitions` (default 200) — partitions after shuffle
+ - `spark.default.parallelism` — RDD operations default
+ - `repartition(n)` — full shuffle to N partitions
+ - `coalesce(n)` — reduce partitions WITHOUT shuffle (combine adjacent)
+ - `spark.sql.files.maxPartitionBytes` — max bytes per partition when reading files
 
-In Community Edition (single node), parallelism is limited by CPU cores, but the concepts of partition count still affect memory usage, spill, and performance.
+```python
+
+```
+
+ ### Partitions and Parallelism
+
+ In Community Edition (single node), parallelism is limited by CPU cores, but the concepts of partition count still affect memory usage, spill, and performance.
 
 ```python
 
@@ -1263,8 +1431,11 @@ print(f"\nRule of thumb: partitions = cores * 2 to 4 (for pipelining)")
 
 ```
 
+```python
 
-### `repartition()` vs `coalesce()` — Critical Difference
+```
+
+ ### `repartition()` vs `coalesce()` — Critical Difference
 
 ```python
 
@@ -1293,8 +1464,11 @@ print(f"  WARNING: coalesce(n) where n > current is a NO-OP (use repartition)")
 
 ```
 
+```python
 
-### Over-Partitioning vs Under-Partitioning
+```
+
+ ### Over-Partitioning vs Under-Partitioning
 
 ```python
 
@@ -1333,10 +1507,13 @@ print(f"Default of 200 is fine in most cases, but can be tuned down for small da
 
 ```
 
+```python
 
-### Checking Partition Distribution
+```
 
-Are your partitions balanced?
+ ### Checking Partition Distribution
+
+ Are your partitions balanced?
 
 ```python
 
@@ -1362,10 +1539,13 @@ print(f"  Min/max ratio    : {max_size / max(1, min_size):.1f}x")
 
 ```
 
+```python
 
-### Effect of Partition Size on Memory
+```
 
-Too-large partitions = spill. Too-small partitions = scheduling overhead.
+ ### Effect of Partition Size on Memory
+
+ Too-large partitions = spill. Too-small partitions = scheduling overhead.
 
 ```python
 
@@ -1389,28 +1569,37 @@ print(f"For our ~{sales_df.count():,}-row table, optimal partitions ≈ {sales_d
 
 ```
 
+```python
 
-**Key takeaway:** Partitions determine parallelism. `repartition()` does a full shuffle (expensive but evenly distributed). `coalesce()` avoids shuffle (cheap but can be uneven). Tune `spark.sql.shuffle.partitions` to match data size: ~100-200MB per partition. For Community Edition, 16-64 partitions is often optimal.
+```
 
+ **Key takeaway:** Partitions determine parallelism. `repartition()` does a full shuffle (expensive but evenly distributed). `coalesce()` avoids shuffle (cheap but can be uneven). Tune `spark.sql.shuffle.partitions` to match data size: ~100-200MB per partition. For Community Edition, 16-64 partitions is often optimal.
 
----
-## Concept 19: Data Skew — Detection & Mitigation [Hard]
+```python
 
-**Data skew** occurs when some keys have disproportionately more data than others. In a distributed operation (join, groupBy), the few tasks processing the "hot" keys become stragglers — they hold up the entire job.
+```
 
-**Symptoms in Spark UI:**
-- High variance in task duration (max task time >> median task time)
-- A few tasks process far more records than others
-- Spill occurring only on certain tasks
+ ---
+ ## Concept 19: Data Skew — Detection & Mitigation [Hard]
 
-**Mitigation strategies:**
-1. **Salting** — Add random prefix to key to spread hot keys
-2. **AQE skew join optimization** — Spark automatically splits skewed partitions
-3. **Broadcast join** — If one side is small, broadcast avoids shuffle entirely
-4. **Separate skewed keys** — Process skewed keys separately, then union
+ **Data skew** occurs when some keys have disproportionately more data than others. In a distributed operation (join, groupBy), the few tasks processing the "hot" keys become stragglers — they hold up the entire job.
 
+ **Symptoms in Spark UI:**
+ - High variance in task duration (max task time >> median task time)
+ - A few tasks process far more records than others
+ - Spill occurring only on certain tasks
 
-### Creating Intentionally Skewed Data
+ **Mitigation strategies:**
+ 1. **Salting** — Add random prefix to key to spread hot keys
+ 2. **AQE skew join optimization** — Spark automatically splits skewed partitions
+ 3. **Broadcast join** — If one side is small, broadcast avoids shuffle entirely
+ 4. **Separate skewed keys** — Process skewed keys separately, then union
+
+```python
+
+```
+
+ ### Creating Intentionally Skewed Data
 
 ```python
 
@@ -1428,10 +1617,13 @@ print(f"Product 1 share: {product_1_count / total_count * 100:.1f}%")
 
 ```
 
+```python
 
-### Detecting Skew — Task Duration Analysis
+```
 
-Run a join with the skewed data and observe the task metrics:
+ ### Detecting Skew — Task Duration Analysis
+
+ Run a join with the skewed data and observe the task metrics:
 
 ```python
 
@@ -1453,8 +1645,11 @@ print("  - MAX task duration will be MUCH larger than MEDIAN → SKEW!")
 
 ```
 
+```python
 
-### Mitigation Strategy 1: Salting (Manual Skew Handling)
+```
+
+ ### Mitigation Strategy 1: Salting (Manual Skew Handling)
 
 ```python
 
@@ -1495,8 +1690,11 @@ print(f"Salted join time: {t1 - t0:.2f}s")
 
 ```
 
+```python
 
-### Mitigation Strategy 2: AQE Skew Join Optimization
+```
+
+ ### Mitigation Strategy 2: AQE Skew Join Optimization
 
 ```python
 
@@ -1538,8 +1736,11 @@ Check Spark UI → SQL tab → this query's DAG:
 
 ```
 
+```python
 
-### Mitigation Strategy 3: Broadcast Join (Eliminates Shuffle)
+```
+
+ ### Mitigation Strategy 3: Broadcast Join (Eliminates Shuffle)
 
 ```python
 
@@ -1561,8 +1762,11 @@ print("\nBroadcast join eliminates the shuffle entirely → skew doesn't matter!
 
 ```
 
+```python
 
-### Before/After Comparison: Skew Impact
+```
+
+ ### Before/After Comparison: Skew Impact
 
 ```python
 
@@ -1601,32 +1805,41 @@ SEPARATE PROCESSING:
 
 ```
 
-
-**Key takeaway:** Data skew causes straggler tasks and slow jobs. The Spark UI reveals skew through task duration variance. Mitigate with AQE (automatic), broadcast joins (when possible), salting (manual but effective), or separate processing. Always profile your data distribution before optimizing.
-
-
----
-## Concept 20: Memory Management & Spill [Hard]
-
-Spark uses a **unified memory model** where execution memory and storage memory share a pool:
+```python
 
 ```
-┌──────────────────────────────────────────────┐
-│              JVM Heap (executor.memory)       │
-├──────────┬──────────────┬─────────────────────┤
-│ Reserved │ Spark Memory │     User Memory      │
-│  Memory  │  (unified)   │  (UDFs, data structs)│
-│ (300MB)  ├──────┬───────┤  (40% of remaining)  │
-│          │Exec  │Storage│                      │
-│          │Mem   │ Memory│                      │
-│          │(50%) │ (50%) │                      │
-└──────────┴──────┴───────┴──────────────────────┘
+
+ **Key takeaway:** Data skew causes straggler tasks and slow jobs. The Spark UI reveals skew through task duration variance. Mitigate with AQE (automatic), broadcast joins (when possible), salting (manual but effective), or separate processing. Always profile your data distribution before optimizing.
+
+```python
+
 ```
 
-**Spill** happens when execution memory is exhausted — data is serialized and written to disk, which is orders of magnitude slower than in-memory processing.
+ ---
+ ## Concept 20: Memory Management & Spill [Hard]
 
+ Spark uses a **unified memory model** where execution memory and storage memory share a pool:
 
-### Understanding the Unified Memory Model
+ ```
+ ┌──────────────────────────────────────────────┐
+ │              JVM Heap (executor.memory)       │
+ ├──────────┬──────────────┬─────────────────────┤
+ │ Reserved │ Spark Memory │     User Memory      │
+ │  Memory  │  (unified)   │  (UDFs, data structs)│
+ │ (300MB)  ├──────┬───────┤  (40% of remaining)  │
+ │          │Exec  │Storage│                      │
+ │          │Mem   │ Memory│                      │
+ │          │(50%) │ (50%) │                      │
+ └──────────┴──────┴───────┴──────────────────────┘
+ ```
+
+ **Spill** happens when execution memory is exhausted — data is serialized and written to disk, which is orders of magnitude slower than in-memory processing.
+
+```python
+
+```
+
+ ### Understanding the Unified Memory Model
 
 ```python
 
@@ -1670,10 +1883,13 @@ When execution memory is full → SPILL TO DISK
 
 ```
 
+```python
 
-### Creating a Spill Scenario
+```
 
-We're going to deliberately cause spill by setting very few shuffle partitions — each partition becomes too large to fit in memory:
+ ### Creating a Spill Scenario
+
+ We're going to deliberately cause spill by setting very few shuffle partitions — each partition becomes too large to fit in memory:
 
 ```python
 
@@ -1711,8 +1927,11 @@ In SQL tab, you'll see Spill metrics for each operation.
 
 ```
 
+```python
 
-### Reducing Spill by Tuning Partitions
+```
+
+ ### Reducing Spill by Tuning Partitions
 
 ```python
 
@@ -1736,8 +1955,11 @@ print(f"\nMore partitions = smaller per-partition data = less spill = potentiall
 
 ```
 
+```python
 
-### Detecting Spill from Code
+```
+
+ ### Detecting Spill from Code
 
 ```python
 
@@ -1779,8 +2001,11 @@ print(f"  Spill threshold     : when per-task data > available execution memory"
 
 ```
 
+```python
 
-### Memory Configuration Effects
+```
+
+ ### Memory Configuration Effects
 
 ```python
 
@@ -1827,8 +2052,11 @@ TUNING FOR COMMUNITY EDITION (single node, 2-4 GB):
 
 ```
 
+```python
 
-### Practical: Compare High-Spill vs Low-Spill Configurations
+```
+
+ ### Practical: Compare High-Spill vs Low-Spill Configurations
 
 ```python
 
@@ -1869,91 +2097,100 @@ spark.conf.set("spark.sql.shuffle.partitions", "200")
 
 ```
 
-
-**Key takeaway:** Spill occurs when execution memory is exhausted, writing data to disk (100x slower). Tune `spark.sql.shuffle.partitions` so each partition fits in execution memory (~100-200MB). Use the Spark UI Stages and Tasks tabs to detect spill metrics. In Community Edition, with limited memory, partition tuning is even more critical.
-
-
----
-## Summary: Concepts #11-#20
-
-| # | Concept | Key Takeaway |
-|---|---------|--------------|
-| 11 | **Lazy Evaluation** | Transformations build a plan; actions execute it. Catalyst optimizes the full DAG before running. |
-| 12 | **Photon Engine** | C++ vectorized engine (not in Community Edition). Understand why batch processing is faster. |
-| 13 | **Catalyst Optimizer** | 4-phase optimization: parsed → analyzed → optimized → physical. Predicate pushdown & column pruning. |
-| 14 | **Adaptive Query Execution** | Runtime re-optimization: coalesce partitions, switch joins, handle skew, skip empty partitions. |
-| 15 | **Shuffle Operations** | Most expensive operation. GroupBy, Join, Distinct trigger it. Monitor via Spark UI. |
-| 16 | **Join Strategies** | Broadcast Hash Join (small+large, no shuffle) vs Sort-Merge Join (large+large). Use `broadcast()` hint. |
-| 17 | **Spark UI** | Jobs → Stages → Tasks → SQL tabs. Diagnose skew, spill, and shuffle bottlenecks. |
-| 18 | **Partitioning & Parallelism** | `repartition()` (full shuffle) vs `coalesce()` (no shuffle). Tune `spark.sql.shuffle.partitions`. |
-| 19 | **Data Skew** | Some keys dominate → straggler tasks. Mitigate with salting, AQE, broadcast joins. |
-| 20 | **Memory & Spill** | Unified memory model. Spill = disk I/O = slow. Tune partitions to fit data in memory. |
-
----
-
-
-## Self-Assessment: Score Yourself
-
-Rate yourself 5 for each concept (0 = no understanding, 5 = can explain clearly):
-
-| Concept | Topic | Your Score (0-5) |
-|---------|-------|------------------|
-| 11 | Lazy Evaluation & Actions | |
-| 12 | Photon Engine | |
-| 13 | Catalyst Optimizer | |
-| 14 | Adaptive Query Execution | |
-| 15 | Shuffle Operations | |
-| 16 | Join Strategies | |
-| 17 | Reading the Spark UI | |
-| 18 | Partitioning & Parallelism | |
-| 19 | Data Skew Detection & Mitigation | |
-| 20 | Memory Management & Spill | |
-
-**Total: /50**
-
-| Score | Level | Next Step |
-|-------|-------|-----------|
-| 40-50 | Senior | Move to Notebook 03 |
-| 25-39 | Mid-level | Revisit concepts scored 3 or below |
-| 15-24 | Foundation | Re-run the code cells for weaker concepts |
-| 0-14 | Beginner | Review each concept's markdown explanation |
-
----
-
-### What's Next?
-
-**Notebook 03: SQL & DataFrames** — Concepts #21-#30 covering daily transformation work with both APIs.
-
-### Quick Reference Card
-
 ```python
-# Lazy evaluation — build, don't execute
-df.filter(...).select(...).groupBy(...)  # transformations only
-df.show()  # action — triggers execution
 
-# See the plan
-df.explain(True)  # full 4-phase plan
-df.explain()      # physical plan only
-
-# Joins — pick the right strategy
-large_df.join(broadcast(small_df), "key")  # broadcast hash join
-large1.join(large2, "key")                  # sort-merge join
-
-# Partitions — control parallelism
-spark.conf.set("spark.sql.shuffle.partitions", "50")
-df.repartition(50)   # full shuffle, even distribution
-df.coalesce(10)      # no shuffle, reduce partitions
-
-# AQE — let Spark optimize at runtime
-spark.conf.set("spark.sql.adaptive.enabled", "true")
-spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")
-
-# Debugging
-spark.sparkContext.uiWebUrl  # Spark UI URL
 ```
 
----
-*End of Notebook 02 — Spark Execution*
+ **Key takeaway:** Spill occurs when execution memory is exhausted, writing data to disk (100x slower). Tune `spark.sql.shuffle.partitions` so each partition fits in execution memory (~100-200MB). Use the Spark UI Stages and Tasks tabs to detect spill metrics. In Community Edition, with limited memory, partition tuning is even more critical.
+
+```python
+
+```
+
+ ---
+ ## Summary: Concepts #11-#20
+
+ | # | Concept | Key Takeaway |
+ |---|---------|--------------|
+ | 11 | **Lazy Evaluation** | Transformations build a plan; actions execute it. Catalyst optimizes the full DAG before running. |
+ | 12 | **Photon Engine** | C++ vectorized engine (not in Community Edition). Understand why batch processing is faster. |
+ | 13 | **Catalyst Optimizer** | 4-phase optimization: parsed → analyzed → optimized → physical. Predicate pushdown & column pruning. |
+ | 14 | **Adaptive Query Execution** | Runtime re-optimization: coalesce partitions, switch joins, handle skew, skip empty partitions. |
+ | 15 | **Shuffle Operations** | Most expensive operation. GroupBy, Join, Distinct trigger it. Monitor via Spark UI. |
+ | 16 | **Join Strategies** | Broadcast Hash Join (small+large, no shuffle) vs Sort-Merge Join (large+large). Use `broadcast()` hint. |
+ | 17 | **Spark UI** | Jobs → Stages → Tasks → SQL tabs. Diagnose skew, spill, and shuffle bottlenecks. |
+ | 18 | **Partitioning & Parallelism** | `repartition()` (full shuffle) vs `coalesce()` (no shuffle). Tune `spark.sql.shuffle.partitions`. |
+ | 19 | **Data Skew** | Some keys dominate → straggler tasks. Mitigate with salting, AQE, broadcast joins. |
+ | 20 | **Memory & Spill** | Unified memory model. Spill = disk I/O = slow. Tune partitions to fit data in memory. |
+
+ ---
+
+```python
+
+```
+
+ ## Self-Assessment: Score Yourself
+
+ Rate yourself 5 for each concept (0 = no understanding, 5 = can explain clearly):
+
+ | Concept | Topic | Your Score (0-5) |
+ |---------|-------|------------------|
+ | 11 | Lazy Evaluation & Actions | |
+ | 12 | Photon Engine | |
+ | 13 | Catalyst Optimizer | |
+ | 14 | Adaptive Query Execution | |
+ | 15 | Shuffle Operations | |
+ | 16 | Join Strategies | |
+ | 17 | Reading the Spark UI | |
+ | 18 | Partitioning & Parallelism | |
+ | 19 | Data Skew Detection & Mitigation | |
+ | 20 | Memory Management & Spill | |
+
+ **Total: /50**
+
+ | Score | Level | Next Step |
+ |-------|-------|-----------|
+ | 40-50 | Senior | Move to Notebook 03 |
+ | 25-39 | Mid-level | Revisit concepts scored 3 or below |
+ | 15-24 | Foundation | Re-run the code cells for weaker concepts |
+ | 0-14 | Beginner | Review each concept's markdown explanation |
+
+ ---
+
+ ### What's Next?
+
+ **Notebook 03: SQL & DataFrames** — Concepts #21-#30 covering daily transformation work with both APIs.
+
+ ### Quick Reference Card
+
+ ```python
+ # Lazy evaluation — build, don't execute
+ df.filter(...).select(...).groupBy(...)  # transformations only
+ df.show()  # action — triggers execution
+
+ # See the plan
+ df.explain(True)  # full 4-phase plan
+ df.explain()      # physical plan only
+
+ # Joins — pick the right strategy
+ large_df.join(broadcast(small_df), "key")  # broadcast hash join
+ large1.join(large2, "key")                  # sort-merge join
+
+ # Partitions — control parallelism
+ spark.conf.set("spark.sql.shuffle.partitions", "50")
+ df.repartition(50)   # full shuffle, even distribution
+ df.coalesce(10)      # no shuffle, reduce partitions
+
+ # AQE — let Spark optimize at runtime
+ spark.conf.set("spark.sql.adaptive.enabled", "true")
+ spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")
+
+ # Debugging
+ spark.sparkContext.uiWebUrl  # Spark UI URL
+ ```
+
+ ---
+ *End of Notebook 02 — Spark Execution*
 
 ```python
 
@@ -1967,4 +2204,3 @@ except Exception:
 
 print("\nNotebook 02 complete. Ready for Notebook 03: SQL & DataFrames.")
 ```
-

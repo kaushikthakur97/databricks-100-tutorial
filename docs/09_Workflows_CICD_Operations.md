@@ -1,75 +1,77 @@
 ﻿# Databricks notebook source
-# 09: Workflows, CI/CD & Operations
-## Concepts 81â€“90 | Production Orchestration & DevOps on Databricks
+ # 09: Workflows, CI/CD & Operations
+ ## Concepts 81â€“90 | Production Orchestration & DevOps on Databricks
 
-### Overview
-This notebook covers the operational backbone of a production Databricks environment:
+ ### Overview
+ This notebook covers the operational backbone of a production Databricks environment:
 
-| # | Concept | Difficulty |
-|---|---------|-----------|
-| 81 | Choosing Compute for Jobs | Easy |
-| 82 | Secrets Management | Easy |
-| 83 | Parameterization: Widgets, Job Parameters, Task Values | Easy |
-| 84 | Notebook Development Patterns | Easy |
-| 85 | Databricks Workflows: Multi-Task Jobs | Medium |
-| 86 | Task Dependencies, Retries & Conditional Logic | Medium |
-| 87 | Git Integration & Repos | Medium |
-| 88 | Monitoring, Alerting & SQL Alerts | Medium |
-| 89 | System Tables for Operations | Medium |
-| 90 | Databricks Asset Bundles (DABs) | Hard |
+ | # | Concept | Difficulty |
+ |---|---------|-----------|
+ | 81 | Choosing Compute for Jobs | Easy |
+ | 82 | Secrets Management | Easy |
+ | 83 | Parameterization: Widgets, Job Parameters, Task Values | Easy |
+ | 84 | Notebook Development Patterns | Easy |
+ | 85 | Databricks Workflows: Multi-Task Jobs | Medium |
+ | 86 | Task Dependencies, Retries & Conditional Logic | Medium |
+ | 87 | Git Integration & Repos | Medium |
+ | 88 | Monitoring, Alerting & SQL Alerts | Medium |
+ | 89 | System Tables for Operations | Medium |
+ | 90 | Databricks Asset Bundles (DABs) | Hard |
 
-### Community Edition Limitations
-Community Edition **cannot** create multi-task jobs, use DBSQL alerts, integrate Repos, or deploy DABs. We explain the production feature, then show what's possible in CE with manual alternatives.
+ ### Community Edition Limitations
+ Community Edition **cannot** create multi-task jobs, use DBSQL alerts, integrate Repos, or deploy DABs. We explain the production feature, then show what's possible in CE with manual alternatives.
 
-```
-+=========================================================+
-|             PRODUCTION DATABRICKS                        |
-|  +---------+   +---------+   +---------+   +---------+  |
-|  | Secrets |-->|  Jobs   |-->|  Alerts |-->|  DABs   |  |
-|  | (AKV)   |   |(Workflow)|   | (Slack) |   | (CI/CD) |  |
-|  +---------+   +---------+   +---------+   +---------+  |
-+=========================================================+
-                  | CE equivalent |
-+=========================================================+
-|            COMMUNITY EDITION                            |
-|  +---------+   +---------+   +---------+   +---------+  |
-|  | Env Vars|   | Widgets |   | Manual  |   | Manual  |  |
-|  | dbutils |   | %run    |   | Print   |   | YAML    |  |
-|  +---------+   +---------+   +---------+   +---------+  |
-+=========================================================+
-```
-
-```python
-
-```
-## Concept 81: Choosing Compute for Jobs
-
-### Production Behaviour
-Databricks offers several compute types for jobs. Choosing the right one affects cost, start-up latency, and isolation:
-
-| Compute Type | Use Case | Startup | Cost |
-|-------------|----------|---------|------|
-| **Serverless Compute** | Default for new jobs; zero management | ~1â€“5 s | Pay-per-second (higher unit cost but no idle) |
-| **Job Cluster** | Ephemeral cluster per job run; single-task | ~2â€“5 min | Pay DBUs while active only |
-| **All-Purpose Cluster** | Interactive development; shared across users/notebooks | Runs continuously | Pay for idle time too |
-| **Instance Pool** | Pre-warmed VMs for fast job cluster creation | ~30â€“60 s | Pay pool idle + job DBUs |
-| **SQL Warehouse** | DBSQL queries & dashboards | ~1â€“2 min | Pay DBUs while active |
-
-### Why All-Purpose Is NOT for Production
-- Runs 24/7 by default â€” you pay for idle DBUs
-- Shared by multiple developers â€” resource contention
-- Notebook output interleaving â€” confusing logs
-- No automatic retry on failure
-- Security: all notebooks on the cluster share the same execution context
-
-### CE Workaround
-Community Edition gives you **one all-purpose cluster**. We can still demonstrate cluster configuration principles and discuss the API patterns.
+ ```
+ +=========================================================+
+ |             PRODUCTION DATABRICKS                        |
+ |  +---------+   +---------+   +---------+   +---------+  |
+ |  | Secrets |-->|  Jobs   |-->|  Alerts |-->|  DABs   |  |
+ |  | (AKV)   |   |(Workflow)|   | (Slack) |   | (CI/CD) |  |
+ |  +---------+   +---------+   +---------+   +---------+  |
+ +=========================================================+
+                   | CE equivalent |
+ +=========================================================+
+ |            COMMUNITY EDITION                            |
+ |  +---------+   +---------+   +---------+   +---------+  |
+ |  | Env Vars|   | Widgets |   | Manual  |   | Manual  |  |
+ |  | dbutils |   | %run    |   | Print   |   | YAML    |  |
+ |  +---------+   +---------+   +---------+   +---------+  |
+ +=========================================================+
+ ```
 
 ```python
 
 ```
-#### 81.1 Job Cluster Configuration (API Representation)
-This is what a well-configured job cluster looks like in the REST API / Jobs UI. You would create this via the "New Job" dialog or Terraform/DABs.
+
+ ## Concept 81: Choosing Compute for Jobs
+
+ ### Production Behaviour
+ Databricks offers several compute types for jobs. Choosing the right one affects cost, start-up latency, and isolation:
+
+ | Compute Type | Use Case | Startup | Cost |
+ |-------------|----------|---------|------|
+ | **Serverless Compute** | Default for new jobs; zero management | ~1â€“5 s | Pay-per-second (higher unit cost but no idle) |
+ | **Job Cluster** | Ephemeral cluster per job run; single-task | ~2â€“5 min | Pay DBUs while active only |
+ | **All-Purpose Cluster** | Interactive development; shared across users/notebooks | Runs continuously | Pay for idle time too |
+ | **Instance Pool** | Pre-warmed VMs for fast job cluster creation | ~30â€“60 s | Pay pool idle + job DBUs |
+ | **SQL Warehouse** | DBSQL queries & dashboards | ~1â€“2 min | Pay DBUs while active |
+
+ ### Why All-Purpose Is NOT for Production
+ - Runs 24/7 by default â€” you pay for idle DBUs
+ - Shared by multiple developers â€” resource contention
+ - Notebook output interleaving â€” confusing logs
+ - No automatic retry on failure
+ - Security: all notebooks on the cluster share the same execution context
+
+ ### CE Workaround
+ Community Edition gives you **one all-purpose cluster**. We can still demonstrate cluster configuration principles and discuss the API patterns.
+
+```python
+
+```
+
+ #### 81.1 Job Cluster Configuration (API Representation)
+ This is what a well-configured job cluster looks like in the REST API / Jobs UI. You would create this via the "New Job" dialog or Terraform/DABs.
 
 ```python
 
@@ -97,7 +99,7 @@ job_cluster_config = {
             "cost_center": "de-2025"
         },
         "init_scripts": [
-            {"dbfs": {"destination": "dbfs:/databricks/init/install_deps.sh"}}
+            {"volumes": {"destination": "/Volumes/catalog/schema/volume/install_deps.sh"}}  # DBFS init scripts not supported on serverless; use Unity Catalog Volumes
         ],
         "spark_env_vars": {
             "ENV": "production",
@@ -118,7 +120,8 @@ print(json.dumps(job_cluster_config, indent=2))
 ```python
 
 ```
-#### 81.2 Compute Decision Matrix
+
+ #### 81.2 Compute Decision Matrix
 
 ```python
 
@@ -141,40 +144,43 @@ for s in scenarios:
 ```python
 
 ```
-### Key Takeaway â€” Concept 81
-- **Serverless** â€” zero-ops, faster startup, higher per-DBU cost
-- **Job Clusters** â€” ephemeral, isolated, best bang-for-buck for periodic jobs
-- **Instance Pools** â€” warm VMs, faster startup than job clusters, good for many short jobs
-- **All-Purpose** â€” development ONLY; never prod
-- Always tag clusters (environment, team, cost_center) for cost attribution
+
+ ### Key Takeaway â€” Concept 81
+ - **Serverless** â€” zero-ops, faster startup, higher per-DBU cost
+ - **Job Clusters** â€” ephemeral, isolated, best bang-for-buck for periodic jobs
+ - **Instance Pools** â€” warm VMs, faster startup than job clusters, good for many short jobs
+ - **All-Purpose** â€” development ONLY; never prod
+ - Always tag clusters (environment, team, cost_center) for cost attribution
 
 ```python
 
 ```
-## Concept 82: Secrets Management
 
-### Production Behaviour
-Databricks provides **Secret Scopes** to store credentials securely:
+ ## Concept 82: Secrets Management
 
-| Scope Type | Backed By | Use Case |
-|-----------|-----------|----------|
-| **Databricks-backed** | Encrypted DB table | Simple, quick |
-| **Azure Key Vault** | AKV | Azure-native, audit log |
-| **AWS Secrets Manager** | AWS SM | AWS-native, rotation |
-| **GCP Secret Manager** | GCP SM | GCP-native |
+ ### Production Behaviour
+ Databricks provides **Secret Scopes** to store credentials securely:
 
-```
-  NEVER:  password = "hunter2"
-  ALWAYS: password = dbutils.secrets.get(scope="my-scope", key="db-password")
-```
+ | Scope Type | Backed By | Use Case |
+ |-----------|-----------|----------|
+ | **Databricks-backed** | Encrypted DB table | Simple, quick |
+ | **Azure Key Vault** | AKV | Azure-native, audit log |
+ | **AWS Secrets Manager** | AWS SM | AWS-native, rotation |
+ | **GCP Secret Manager** | GCP SM | GCP-native |
 
-### CE Workaround
-Community Edition may not support full Secret Scopes. Use environment variables as an acceptable fallback.
+ ```
+   NEVER:  password = "hunter2"
+   ALWAYS: password = dbutils.secrets.get(scope="my-scope", key="db-password")
+ ```
+
+ ### CE Workaround
+ Community Edition may not support full Secret Scopes. Use environment variables as an acceptable fallback.
 
 ```python
 
 ```
-#### 82.1 Proper vs Improper Secret Handling
+
+ #### 82.1 Proper vs Improper Secret Handling
 
 ```python
 
@@ -218,7 +224,8 @@ print(f"  API_KEY is set: {api_key != 'DEV_DEFAULT_DO_NOT_USE_IN_PROD'}")
 ```python
 
 ```
-#### 82.2 Simulated Secrets Manager (CE-Compatible)
+
+ #### 82.2 Simulated Secrets Manager (CE-Compatible)
 
 ```python
 
@@ -269,7 +276,8 @@ print(f"  API key prefix: {api_key[:4]}...")
 ```python
 
 ```
-#### 82.3 Secret Rotation Pattern
+
+ #### 82.3 Secret Rotation Pattern
 
 ```python
 
@@ -311,34 +319,37 @@ print(f"  API key: {secret_mgr.get('api', 'api_key')}")
 ```python
 
 ```
-### Key Takeaway â€” Concept 82
-- Never hardcode secrets; use dbutils.secrets.get(scope, key)
-- Use Key Vault-backed scopes for production (audit logs, auto-rotation)
-- Environment variables are an acceptable fallback (CE / local dev)
-- Principle of least privilege: one scope per application
-- Rotate secrets regularly; automate via Key Vault policies
+
+ ### Key Takeaway â€” Concept 82
+ - Never hardcode secrets; use dbutils.secrets.get(scope, key)
+ - Use Key Vault-backed scopes for production (audit logs, auto-rotation)
+ - Environment variables are an acceptable fallback (CE / local dev)
+ - Principle of least privilege: one scope per application
+ - Rotate secrets regularly; automate via Key Vault policies
 
 ```python
 
 ```
-## Concept 83: Parameterization: Widgets, Job Parameters, Task Values
 
-### Production Behaviour
-Databricks provides three layers of parameterisation:
+ ## Concept 83: Parameterization: Widgets, Job Parameters, Task Values
 
-| Mechanism | Scope | Persistence | Use Case |
-|-----------|-------|-------------|----------|
-| **Widgets** (dbutils.widgets) | Single notebook | Interactive only | Ad-hoc runs, debugging |
-| **Job Parameters** | Single task | Per run | Scheduled runs from Workflows |
-| **Task Values** | Cross-task | Per run | Pass data between tasks in a job |
+ ### Production Behaviour
+ Databricks provides three layers of parameterisation:
 
-### CE Availability
-**ALL widget types work fully in Community Edition!** This is the most CE-friendly concept.
+ | Mechanism | Scope | Persistence | Use Case |
+ |-----------|-------|-------------|----------|
+ | **Widgets** (dbutils.widgets) | Single notebook | Interactive only | Ad-hoc runs, debugging |
+ | **Job Parameters** | Single task | Per run | Scheduled runs from Workflows |
+ | **Task Values** | Cross-task | Per run | Pass data between tasks in a job |
+
+ ### CE Availability
+ **ALL widget types work fully in Community Edition!** This is the most CE-friendly concept.
 
 ```python
 
 ```
-#### 83.1 Creating Interactive Widgets
+
+ #### 83.1 Creating Interactive Widgets
 
 ```python
 
@@ -372,7 +383,8 @@ print("Change values and re-run cells to see the effect.")
 ```python
 
 ```
-#### 83.2 Reading Widget Values in Code
+
+ #### 83.2 Reading Widget Values in Code
 
 ```python
 
@@ -400,8 +412,9 @@ print(f"  Threshold    : {threshold:.1%}")
 ```python
 
 ```
-#### 83.3 Widget + Job Parameter Pattern
-In production, job parameters override widget defaults. We simulate this pattern.
+
+ #### 83.3 Widget + Job Parameter Pattern
+ In production, job parameters override widget defaults. We simulate this pattern.
 
 ```python
 
@@ -441,7 +454,8 @@ print(f"  run_date     = {dt!r}")
 ```python
 
 ```
-#### 83.4 Simulated Task Values (Inter-Task Communication)
+
+ #### 83.4 Simulated Task Values (Inter-Task Communication)
 
 ```python
 
@@ -510,35 +524,38 @@ print(json.dumps(TaskValues._store, indent=2, default=str))
 ```python
 
 ```
-### Key Takeaway â€” Concept 83
-- **Widgets** â€” interactive parameterisation; all types work in CE
-- **Job Parameters** â€” set once per run, override widgets; production scheduling
-- **Task Values** â€” inter-task data passing in multi-task jobs
-- Resolution order: Job Params > Widgets > Code defaults
-- Widgets are CE's most powerful built-in feature â€” leverage them!
+
+ ### Key Takeaway â€” Concept 83
+ - **Widgets** â€” interactive parameterisation; all types work in CE
+ - **Job Parameters** â€” set once per run, override widgets; production scheduling
+ - **Task Values** â€” inter-task data passing in multi-task jobs
+ - Resolution order: Job Params > Widgets > Code defaults
+ - Widgets are CE's most powerful built-in feature â€” leverage them!
 
 ```python
 
 ```
-## Concept 84: Notebook Development Patterns
 
-### Production Behaviour
-Databricks notebooks support powerful compositional patterns:
+ ## Concept 84: Notebook Development Patterns
 
-| Pattern | Command | Use Case |
-|---------|---------|----------|
-| **%run** | %run /path/to/notebook | Import shared functions/variables inline |
-| **dbutils.notebook.run()** | dbutils.notebook.run(path, timeout, args) | Run a child notebook with parameters, capture exit value |
-| **Magic Commands** | %sql, %python, %fs, %sh, %md | Multi-language in one notebook |
-| **%pip** | %pip install <library> | Notebook-scoped library installation |
+ ### Production Behaviour
+ Databricks notebooks support powerful compositional patterns:
 
-### CE Availability
-**ALL patterns work fully in Community Edition** â€” %run, dbutils.notebook.run(), magic commands, and %pip.
+ | Pattern | Command | Use Case |
+ |---------|---------|----------|
+ | **%run** | %run /path/to/notebook | Import shared functions/variables inline |
+ | **dbutils.notebook.run()** | dbutils.notebook.run(path, timeout, args) | Run a child notebook with parameters, capture exit value |
+ | **Magic Commands** | %sql, %python, %fs, %sh, %md | Multi-language in one notebook |
+ | **%pip** | %pip install <library> | Notebook-scoped library installation |
+
+ ### CE Availability
+ **ALL patterns work fully in Community Edition** â€” %run, dbutils.notebook.run(), magic commands, and %pip.
 
 ```python
 
 ```
-#### 84.1 Shared Utility Functions (simulates a %run target)
+
+ #### 84.1 Shared Utility Functions (simulates a %run target)
 
 ```python
 
@@ -600,10 +617,11 @@ print(f"  Available: check_null_rates, check_freshness, validate_row_count, log_
 ```python
 
 ```
-#### 84.2 %run Pattern â€” Import Shared Utilities
-In production: `%run /Shared/utils/dq_utils`
 
-This imports all variables and functions into the current notebook's namespace.
+ #### 84.2 %run Pattern â€” Import Shared Utilities
+ In production: `%run /Shared/utils/dq_utils`
+
+ This imports all variables and functions into the current notebook's namespace.
 
 ```python
 
@@ -622,7 +640,8 @@ print("Avoid for: heavy work that should be isolated.")
 ```python
 
 ```
-#### 84.3 dbutils.notebook.run() â€” Isolated Execution
+
+ #### 84.3 dbutils.notebook.run() â€” Isolated Execution
 
 ```python
 
@@ -693,51 +712,56 @@ print("""
 ```python
 
 ```
-#### 84.4 Magic Commands Showcase
+
+ #### 84.4 Magic Commands Showcase
 
 ```python
 
 ```
-##### %sql â€” Embedded SQL queries
 
-```python
-
-# MAGIC %sql
-# MAGIC SELECT '2025-01-15' AS load_date, 157832 AS row_count
-# MAGIC UNION ALL
-# MAGIC SELECT '2025-01-14' AS load_date, 142109 AS row_count
-# MAGIC UNION ALL
-# MAGIC SELECT '2025-01-13' AS load_date, 138456 AS row_count
-# MAGIC ORDER BY load_date DESC
-
-```
+ ##### %sql â€” Embedded SQL queries
 
 ```python
 
 ```
-##### %fs â€” File system operations
 
-```python
-
-# MAGIC %fs ls /databricks-datasets/
-
-```
-
-```python
-
-```
-##### %sh â€” Shell commands on the driver node
-
-```python
-
-# MAGIC %sh echo "Driver node: $(hostname)"; echo "Python: $(python --version 2>&1)"
-
-```
+ %sql
+ SELECT '2025-01-15' AS load_date, 157832 AS row_count
+ UNION ALL
+ SELECT '2025-01-14' AS load_date, 142109 AS row_count
+ UNION ALL
+ SELECT '2025-01-13' AS load_date, 138456 AS row_count
+ ORDER BY load_date DESC
 
 ```python
 
 ```
-##### %pip â€” Notebook-scoped library installation
+
+ ##### %fs â€” File system operations
+
+```python
+
+```
+
+ %fs ls /databricks-datasets/
+
+```python
+
+```
+
+ ##### %sh â€” Shell commands on the driver node
+
+```python
+
+```
+
+ %sh echo "Driver node: $(hostname)"; echo "Python: $(python --version 2>&1)"
+
+```python
+
+```
+
+ ##### %pip â€” Notebook-scoped library installation
 
 ```python
 
@@ -764,7 +788,8 @@ print("%pip list              â€” show installed packages")
 ```python
 
 ```
-#### 84.5 Notebook Testing Pattern
+
+ #### 84.5 Notebook Testing Pattern
 
 ```python
 
@@ -821,67 +846,70 @@ else:
 ```python
 
 ```
-### Key Takeaway â€” Concept 84
-- %run = inline import (shared namespace); dbutils.notebook.run() = isolated execution (exit value)
-- Magic commands (%sql, %fs, %sh, %pip) make notebooks multi-language
-- %pip installs libraries per-notebook, no cluster restart
-- Test utility functions directly within notebooks (lightweight unit tests)
-- All patterns work in Community Edition â€” great for learning!
+
+ ### Key Takeaway â€” Concept 84
+ - %run = inline import (shared namespace); dbutils.notebook.run() = isolated execution (exit value)
+ - Magic commands (%sql, %fs, %sh, %pip) make notebooks multi-language
+ - %pip installs libraries per-notebook, no cluster restart
+ - Test utility functions directly within notebooks (lightweight unit tests)
+ - All patterns work in Community Edition â€” great for learning!
 
 ```python
 
 ```
-## Concept 85: Databricks Workflows: Multi-Task Jobs
 
-### Production Behaviour
-Databricks Workflows let you define multi-step pipelines with dependencies, retries, and conditional logic:
+ ## Concept 85: Databricks Workflows: Multi-Task Jobs
 
-| Task Type | Description |
-|-----------|-------------|
-| **Notebook** | Run a Databricks notebook |
-| **Python Script** | Run a .py file (Repo or DBFS) |
-| **Python Wheel** | Run a packaged wheel |
-| **SQL** | Run a DBSQL query or dashboard |
-| **dbt** | Run dbt Core commands |
-| **JAR** | Run a Spark JAR job |
-| **Pipeline** | Trigger a Delta Live Tables pipeline |
-| **For Each** | Dynamic fan-out over an array |
+ ### Production Behaviour
+ Databricks Workflows let you define multi-step pipelines with dependencies, retries, and conditional logic:
 
-```
-WORKFLOW: Daily ETL Pipeline
+ | Task Type | Description |
+ |-----------|-------------|
+ | **Notebook** | Run a Databricks notebook |
+ | **Python Script** | Run a .py file (Repo or DBFS) |
+ | **Python Wheel** | Run a packaged wheel |
+ | **SQL** | Run a DBSQL query or dashboard |
+ | **dbt** | Run dbt Core commands |
+ | **JAR** | Run a Spark JAR job |
+ | **Pipeline** | Trigger a Delta Live Tables pipeline |
+ | **For Each** | Dynamic fan-out over an array |
 
-                +----------+
-                |  Ingest  |
-                |  Raw     |
-                +----+-----+
-                     |
-          +----------+----------+
-          v          v          v
-    +----------+ +----------+ +----------+
-    |Transform | |Transform | |Transform |
-    |  Sales   | |Inventory | |Customers |  <- Fan-out
-    +----+-----+ +----+-----+ +----+-----+
-         |            |            |
-         +------------+------------+
+ ```
+ WORKFLOW: Daily ETL Pipeline
+
+                 +----------+
+                 |  Ingest  |
+                 |  Raw     |
+                 +----+-----+
+                      |
+           +----------+----------+
+           v          v          v
+     +----------+ +----------+ +----------+
+     |Transform | |Transform | |Transform |
+     |  Sales   | |Inventory | |Customers |  <- Fan-out
+     +----+-----+ +----+-----+ +----+-----+
+          |            |            |
+          +------------+------------+
+                       v
+                 +----------+
+                 |Aggregate |  <- Fan-in
+                 |  KPI     |
+                 +----+-----+
                       v
-                +----------+
-                |Aggregate |  <- Fan-in
-                |  KPI     |
-                +----+-----+
-                     v
-                +----------+
-                |  DQ      |  <- Conditional: only if aggregate succeeds
-                |  Check   |
-                +----------+
-```
+                 +----------+
+                 |  DQ      |  <- Conditional: only if aggregate succeeds
+                 |  Check   |
+                 +----------+
+ ```
 
-### CE Limitation
-Community Edition **cannot create multi-task jobs** (single-task only). We show the architecture conceptually and implement a Python-based orchestrator.
+ ### CE Limitation
+ Community Edition **cannot create multi-task jobs** (single-task only). We show the architecture conceptually and implement a Python-based orchestrator.
 
 ```python
 
 ```
-#### 85.1 Job Definition â€” JSON Structure (What Production Looks Like)
+
+ #### 85.1 Job Definition â€” JSON Structure (What Production Looks Like)
 
 ```python
 
@@ -947,7 +975,8 @@ print(json.dumps(job_definition, indent=2))
 ```python
 
 ```
-#### 85.2 CE Workaround: Python Orchestrator with Dependencies
+
+ #### 85.2 CE Workaround: Python Orchestrator with Dependencies
 
 ```python
 
@@ -1117,7 +1146,8 @@ results = orchestrator.run()
 ```python
 
 ```
-#### 85.3 Scheduling Concepts (Trigger Types)
+
+ #### 85.3 Scheduling Concepts (Trigger Types)
 
 ```python
 
@@ -1142,46 +1172,49 @@ for t in triggers:
 ```python
 
 ```
-### Key Takeaway â€” Concept 85
-- Multi-task Workflows are the core of production orchestration
-- Task types: Notebook, Python Script, Python Wheel, SQL, dbt, JAR, Pipeline
-- Fan-out (parallel tasks) and fan-in (aggregation after parallel)
-- CE cannot create multi-task jobs â€” use our Python orchestrator for learning
-- Job definitions can be JSON (API) or YAML (DABs) format
-- Triggers: Scheduled, File Arrival, Continuous, Manual, API, Webhook
+
+ ### Key Takeaway â€” Concept 85
+ - Multi-task Workflows are the core of production orchestration
+ - Task types: Notebook, Python Script, Python Wheel, SQL, dbt, JAR, Pipeline
+ - Fan-out (parallel tasks) and fan-in (aggregation after parallel)
+ - CE cannot create multi-task jobs â€” use our Python orchestrator for learning
+ - Job definitions can be JSON (API) or YAML (DABs) format
+ - Triggers: Scheduled, File Arrival, Continuous, Manual, API, Webhook
 ```python
 
 ```
-## Concept 86: Task Dependencies, Retries & Conditional Logic
 
-### Production Behaviour
-Each task in a Workflow supports fine-grained retry and conditional execution:
+ ## Concept 86: Task Dependencies, Retries & Conditional Logic
 
-| Feature | Options | Description |
-|---------|---------|-------------|
-| **max_retries** | 0â€“5 | Number of retry attempts on failure |
-| **min_retry_interval_millis** | >= 0 | Minimum wait between retries |
-| **retry_on_timeout** | true/false | Whether timeouts trigger retries |
-| **timeout_seconds** | 0â€“259200 | Max task runtime before forced termination |
-| **run_if** | ALL_SUCCESS, ALL_DONE, AT_LEAST_ONE_SUCCESS, NONE_FAILED | Conditional execution |
-| **depends_on** | List of task keys | Upstream dependencies |
+ ### Production Behaviour
+ Each task in a Workflow supports fine-grained retry and conditional execution:
 
-```
-RETRY BEHAVIOUR WITH EXPONENTIAL BACKOFF:
+ | Feature | Options | Description |
+ |---------|---------|-------------|
+ | **max_retries** | 0â€“5 | Number of retry attempts on failure |
+ | **min_retry_interval_millis** | >= 0 | Minimum wait between retries |
+ | **retry_on_timeout** | true/false | Whether timeouts trigger retries |
+ | **timeout_seconds** | 0â€“259200 | Max task runtime before forced termination |
+ | **run_if** | ALL_SUCCESS, ALL_DONE, AT_LEAST_ONE_SUCCESS, NONE_FAILED | Conditional execution |
+ | **depends_on** | List of task keys | Upstream dependencies |
 
-Attempt 1 (t=0s)  --FAIL-->
-  wait 60s
-Attempt 2 (t=60s) --FAIL-->
-  wait 120s
-Attempt 3 (t=180s) --SUCCESS--> (done)
+ ```
+ RETRY BEHAVIOUR WITH EXPONENTIAL BACKOFF:
 
-If max_retries exhausted -> task fails -> downstream runs/skips per run_if
-```
+ Attempt 1 (t=0s)  --FAIL-->
+   wait 60s
+ Attempt 2 (t=60s) --FAIL-->
+   wait 120s
+ Attempt 3 (t=180s) --SUCCESS--> (done)
+
+ If max_retries exhausted -> task fails -> downstream runs/skips per run_if
+ ```
 
 ```python
 
 ```
-#### 86.1 Retry Decorator (CE Implementation)
+
+ #### 86.1 Retry Decorator (CE Implementation)
 
 ```python
 
@@ -1262,7 +1295,8 @@ except RuntimeError as e:
 ```python
 
 ```
-#### 86.2 Conditional Execution Patterns (run_if)
+
+ #### 86.2 Conditional Execution Patterns (run_if)
 
 ```python
 
@@ -1303,7 +1337,8 @@ print("""
 ```python
 
 ```
-#### 86.3 Alerting Patterns (Email & Webhook Simulation)
+
+ #### 86.3 Alerting Patterns (Email & Webhook Simulation)
 
 ```python
 
@@ -1360,53 +1395,56 @@ alerts.summary()
 ```python
 
 ```
-### Key Takeaway â€” Concept 86
-- **Retries** with exponential backoff handle transient failures gracefully
-- **run_if** conditions enable sophisticated pipeline branching
-- **Task Values** pass data between tasks (demonstrated in Section 83.4)
-- **Alerting** integrates with Email, Slack, PagerDuty, Webhooks
-- CE can simulate all of these patterns in Python
+
+ ### Key Takeaway â€” Concept 86
+ - **Retries** with exponential backoff handle transient failures gracefully
+ - **run_if** conditions enable sophisticated pipeline branching
+ - **Task Values** pass data between tasks (demonstrated in Section 83.4)
+ - **Alerting** integrates with Email, Slack, PagerDuty, Webhooks
+ - CE can simulate all of these patterns in Python
 
 ```python
 
 ```
-## Concept 87: Git Integration & Repos
 
-### Production Behaviour
-Databricks Repos provides first-class Git integration for version-controlled notebook development:
+ ## Concept 87: Git Integration & Repos
 
-| Feature | Description |
-|---------|-------------|
-| **Git Providers** | GitHub, GitLab, Bitbucket, Azure DevOps, AWS CodeCommit |
-| **Repo Structure** | Notebooks, Python files, YAML configs all in one repo |
-| **Branching** | Main, feature branches, PR-based workflow |
-| **Sync** | Pull latest, create branch from repo, merge |
-| **CI/CD** | Trigger jobs on PR, run tests on push |
+ ### Production Behaviour
+ Databricks Repos provides first-class Git integration for version-controlled notebook development:
 
-```
-REPOS DIRECTORY LAYOUT:
+ | Feature | Description |
+ |---------|-------------|
+ | **Git Providers** | GitHub, GitLab, Bitbucket, Azure DevOps, AWS CodeCommit |
+ | **Repo Structure** | Notebooks, Python files, YAML configs all in one repo |
+ | **Branching** | Main, feature branches, PR-based workflow |
+ | **Sync** | Pull latest, create branch from repo, merge |
+ | **CI/CD** | Trigger jobs on PR, run tests on push |
 
-databricks-project/
-|-- src/ingest/ingest_raw.py
-|-- src/transform/transform_sales.py
-|-- src/transform/transform_inventory.py
-|-- src/aggregate/kpi_aggregates.py
-|-- tests/test_ingest.py
-|-- tests/test_transform.py
-|-- config/dev_config.yaml
-|-- config/prod_config.yaml
-|-- databricks.yml          (DAB definition)
-|-- .github/workflows/deploy.yml  (CI/CD)
-|-- README.md
-```
+ ```
+ REPOS DIRECTORY LAYOUT:
 
-### CE Limitation
-Community Edition has **limited Git support** (no Repos API). We demonstrate the patterns and best practices conceptually.
+ databricks-project/
+ |-- src/ingest/ingest_raw.py
+ |-- src/transform/transform_sales.py
+ |-- src/transform/transform_inventory.py
+ |-- src/aggregate/kpi_aggregates.py
+ |-- tests/test_ingest.py
+ |-- tests/test_transform.py
+ |-- config/dev_config.yaml
+ |-- config/prod_config.yaml
+ |-- databricks.yml          (DAB definition)
+ |-- .github/workflows/deploy.yml  (CI/CD)
+ |-- README.md
+ ```
+
+ ### CE Limitation
+ Community Edition has **limited Git support** (no Repos API). We demonstrate the patterns and best practices conceptually.
 
 ```python
 
 ```
-#### 87.1 Branching Strategy for Notebook Development
+
+ #### 87.1 Branching Strategy for Notebook Development
 
 ```python
 
@@ -1448,7 +1486,8 @@ print(branching_strategy)
 ```python
 
 ```
-#### 87.2 CI/CD Pipeline Concept (GitHub Actions)
+
+ #### 87.2 CI/CD Pipeline Concept (GitHub Actions)
 
 ```python
 
@@ -1524,7 +1563,8 @@ print(github_actions_yaml)
 ```python
 
 ```
-#### 87.3 PR Review Checklist Simulation
+
+ #### 87.3 PR Review Checklist Simulation
 
 ```python
 
@@ -1592,37 +1632,40 @@ pr.print_report()
 ```python
 
 ```
-### Key Takeaway â€” Concept 87
-- Use Databricks Repos for Git-backed notebook development (not /Users/ folders)
-- Structured directory layout: src/, tests/, config/
-- Branch strategy: Main (prod) <- Develop (integration) <- Feature branches
-- PR workflow: automated lint + tests -> code review -> merge -> deploy
-- CE has limited Git â€” practice the structure and workflows conceptually
+
+ ### Key Takeaway â€” Concept 87
+ - Use Databricks Repos for Git-backed notebook development (not /Users/ folders)
+ - Structured directory layout: src/, tests/, config/
+ - Branch strategy: Main (prod) <- Develop (integration) <- Feature branches
+ - PR workflow: automated lint + tests -> code review -> merge -> deploy
+ - CE has limited Git â€” practice the structure and workflows conceptually
 
 ```python
 
 ```
-## Concept 88: Monitoring, Alerting & SQL Alerts
 
-### Production Behaviour
-Databricks provides several layers of monitoring:
+ ## Concept 88: Monitoring, Alerting & SQL Alerts
 
-| Mechanism | Scope | Use Case |
-|-----------|-------|----------|
-| **SQL Alerts** | DBSQL queries | Threshold-based: e.g., 0 rows ingested |
-| **Job Run Notifications** | Per-job | Email on start/success/failure |
-| **Webhook Destinations** | Account-wide | Slack, PagerDuty, Teams, custom HTTP |
-| **System Tables** | Account-wide | Query job/cluster/audit history |
-| **Cluster Event Logs** | Per-cluster | Spark events, GC logs, executor metrics |
-| **Grafana Integration** | Workspace | Custom dashboards from system tables |
+ ### Production Behaviour
+ Databricks provides several layers of monitoring:
 
-### CE Limitation
-No DBSQL Alerts, no webhook destinations. We build manual monitoring and alerting in Python.
+ | Mechanism | Scope | Use Case |
+ |-----------|-------|----------|
+ | **SQL Alerts** | DBSQL queries | Threshold-based: e.g., 0 rows ingested |
+ | **Job Run Notifications** | Per-job | Email on start/success/failure |
+ | **Webhook Destinations** | Account-wide | Slack, PagerDuty, Teams, custom HTTP |
+ | **System Tables** | Account-wide | Query job/cluster/audit history |
+ | **Cluster Event Logs** | Per-cluster | Spark events, GC logs, executor metrics |
+ | **Grafana Integration** | Workspace | Custom dashboards from system tables |
+
+ ### CE Limitation
+ No DBSQL Alerts, no webhook destinations. We build manual monitoring and alerting in Python.
 
 ```python
 
 ```
-#### 88.1 Data Freshness Monitor (CE Implementation)
+
+ #### 88.1 Data Freshness Monitor (CE Implementation)
 
 ```python
 
@@ -1717,7 +1760,8 @@ else:
 ```python
 
 ```
-#### 88.2 Simulated SQL Alert (What Production Looks Like)
+
+ #### 88.2 Simulated SQL Alert (What Production Looks Like)
 
 ```python
 
@@ -1756,7 +1800,8 @@ print("Use the Python monitor above + cron/scheduler instead.")
 ```python
 
 ```
-#### 88.3 Alert Severity Classification
+
+ #### 88.3 Alert Severity Classification
 
 ```python
 
@@ -1814,36 +1859,39 @@ AlertRouter.route("cost_anomaly", "P3_MEDIUM", "DBU usage 30% above 7-day averag
 ```python
 
 ```
-### Key Takeaway â€” Concept 88
-- SQL Alerts are the primary threshold-based notification mechanism in production
-- Classify alerts: P1 (critical) to P4 (informational)
-- Route alerts by domain and severity to appropriate channels
-- CE: implement monitoring functions in Python; simulate alert routing
-- Production: SQL Alerts -> Webhook Destinations -> PagerDuty/Slack/Email
+
+ ### Key Takeaway â€” Concept 88
+ - SQL Alerts are the primary threshold-based notification mechanism in production
+ - Classify alerts: P1 (critical) to P4 (informational)
+ - Route alerts by domain and severity to appropriate channels
+ - CE: implement monitoring functions in Python; simulate alert routing
+ - Production: SQL Alerts -> Webhook Destinations -> PagerDuty/Slack/Email
 
 ```python
 
 ```
-## Concept 89: System Tables for Operations
 
-### Production Behaviour
-System tables provide operational data for monitoring, cost tracking, and auditing:
+ ## Concept 89: System Tables for Operations
 
-| Schema | Key Tables | Purpose |
-|--------|-----------|---------|
-| **system.billing** | usage, list_prices | Cost tracking, DBU consumption |
-| **system.compute** | clusters, node_timeline | Cluster lifecycle, auto-scaling events |
-| **system.jobs** | job_runs, task_runs | Job execution history, durations, failures |
-| **system.access** | audit | Access logs for compliance |
-| **system.storage** | blob_usage | Storage consumption |
+ ### Production Behaviour
+ System tables provide operational data for monitoring, cost tracking, and auditing:
 
-### CE Limitation
-System tables are not available in Community Edition. We build our own operational tracking.
+ | Schema | Key Tables | Purpose |
+ |--------|-----------|---------|
+ | **system.billing** | usage, list_prices | Cost tracking, DBU consumption |
+ | **system.compute** | clusters, node_timeline | Cluster lifecycle, auto-scaling events |
+ | **system.jobs** | job_runs, task_runs | Job execution history, durations, failures |
+ | **system.access** | audit | Access logs for compliance |
+ | **system.storage** | blob_usage | Storage consumption |
+
+ ### CE Limitation
+ System tables are not available in Community Edition. We build our own operational tracking.
 
 ```python
 
 ```
-#### 89.1 Custom Operational Tracking Tables
+
+ #### 89.1 Custom Operational Tracking Tables
 
 ```python
 
@@ -1907,7 +1955,8 @@ print(f"Generated: {len(ops_db.job_runs)} job runs, {len(ops_db.cost_records)} c
 ```python
 
 ```
-#### 89.2 Operational Dashboard Queries
+
+ #### 89.2 Operational Dashboard Queries
 
 ```python
 
@@ -1981,7 +2030,8 @@ else:
 ```python
 
 ```
-#### 89.3 Cost Attribution & Showback
+
+ #### 89.3 Cost Attribution & Showback
 
 ```python
 
@@ -2017,56 +2067,59 @@ print(f"  5. Auto-terminate idle all-purpose clusters (< 60 min)")
 ```python
 
 ```
-### Key Takeaway â€” Concept 89
-- System tables are the operational backbone of a production Databricks workspace
-- system.billing.usage -> track costs; system.compute.clusters -> cluster lifecycle; system.jobs.job_runs -> job history
-- Build operational dashboards in DBSQL querying these tables
-- CE: create your own operational tracking (even if in-memory or CSV)
-- Tag everything for cost attribution (team, project, environment)
+
+ ### Key Takeaway â€” Concept 89
+ - System tables are the operational backbone of a production Databricks workspace
+ - system.billing.usage -> track costs; system.compute.clusters -> cluster lifecycle; system.jobs.job_runs -> job history
+ - Build operational dashboards in DBSQL querying these tables
+ - CE: create your own operational tracking (even if in-memory or CSV)
+ - Tag everything for cost attribution (team, project, environment)
 
 ```python
 
 ```
-## Concept 90: Databricks Asset Bundles (DABs)
 
-### Production Behaviour
-Databricks Asset Bundles (DABs) bring infrastructure-as-code to the Databricks platform:
+ ## Concept 90: Databricks Asset Bundles (DABs)
 
-| Concept | Description |
-|---------|-------------|
-| **databricks.yml** | Single file defining all resources (jobs, pipelines, models, schemas) |
-| **Bundle** | A collection of resources deployed together to a target |
-| **Targets** | Environment-specific overrides (dev, staging, production) |
-| **Variables** | Parameterisation across environments |
-| **bundle validate** | Validate YAML syntax and resource references |
-| **bundle deploy** | Deploy resources to a target workspace |
-| **bundle run** | Run a job or pipeline defined in the bundle |
-| **bundle destroy** | Remove deployed resources |
+ ### Production Behaviour
+ Databricks Asset Bundles (DABs) bring infrastructure-as-code to the Databricks platform:
 
-```
-DAB: INFRASTRUCTURE-AS-CODE
+ | Concept | Description |
+ |---------|-------------|
+ | **databricks.yml** | Single file defining all resources (jobs, pipelines, models, schemas) |
+ | **Bundle** | A collection of resources deployed together to a target |
+ | **Targets** | Environment-specific overrides (dev, staging, production) |
+ | **Variables** | Parameterisation across environments |
+ | **bundle validate** | Validate YAML syntax and resource references |
+ | **bundle deploy** | Deploy resources to a target workspace |
+ | **bundle run** | Run a job or pipeline defined in the bundle |
+ | **bundle destroy** | Remove deployed resources |
 
-  databricks.yml                     Workspace
-  +------------------+              +------------------+
-  | resources:       |   deploy     | Jobs:            |
-  |   jobs:          | ---------->  |   +- daily_etl   |
-  |     daily_etl:   |              |   +- dq_monitor  |
-  |       ...        |              | Pipelines:       |
-  |   pipelines:     |              |   +- sales_dlt   |
-  |     sales_dlt:   |              | Notifications:   |
-  |       ...        |              |   +- webhooks    |
-  | targets:         |              +------------------+
-  |   dev/staging/prod  |            Same YAML, different targets
-  +------------------+
-```
+ ```
+ DAB: INFRASTRUCTURE-AS-CODE
 
-### CE Limitation
-The Databricks CLI bundle command does not work with Community Edition. We show the YAML structure and explain the IaC philosophy.
+   databricks.yml                     Workspace
+   +------------------+              +------------------+
+   | resources:       |   deploy     | Jobs:            |
+   |   jobs:          | ---------->  |   +- daily_etl   |
+   |     daily_etl:   |              |   +- dq_monitor  |
+   |       ...        |              | Pipelines:       |
+   |   pipelines:     |              |   +- sales_dlt   |
+   |     sales_dlt:   |              | Notifications:   |
+   |       ...        |              |   +- webhooks    |
+   | targets:         |              +------------------+
+   |   dev/staging/prod  |            Same YAML, different targets
+   +------------------+
+ ```
+
+ ### CE Limitation
+ The Databricks CLI bundle command does not work with Community Edition. We show the YAML structure and explain the IaC philosophy.
 
 ```python
 
 ```
-#### 90.1 Complete databricks.yml Example
+
+ #### 90.1 Complete databricks.yml Example
 
 ```python
 
@@ -2241,7 +2294,8 @@ print(databricks_yml)
 ```python
 
 ```
-#### 90.2 DABs CLI Commands Cheat Sheet
+
+ #### 90.2 DABs CLI Commands Cheat Sheet
 
 ```python
 
@@ -2286,7 +2340,8 @@ for category, cmds in commands.items():
 ```python
 
 ```
-#### 90.3 Infrastructure-as-Code Philosophy
+
+ #### 90.3 Infrastructure-as-Code Philosophy
 
 ```python
 
@@ -2344,168 +2399,171 @@ print(iac_philosophy)
 ```python
 
 ```
-### Key Takeaway â€” Concept 90
-- DABs enable infrastructure-as-code for the entire Databricks platform
-- Single databricks.yml defines jobs, pipelines, clusters, queries
-- Targets (dev/staging/prod) manage environment-specific differences
-- Bundle CLI: validate -> deploy -> run -> destroy
-- CE cannot use bundles â€” understand the YAML structure and IaC philosophy
-- Production: DABs + GitHub Actions = full GitOps workflow
+
+ ### Key Takeaway â€” Concept 90
+ - DABs enable infrastructure-as-code for the entire Databricks platform
+ - Single databricks.yml defines jobs, pipelines, clusters, queries
+ - Targets (dev/staging/prod) manage environment-specific differences
+ - Bundle CLI: validate -> deploy -> run -> destroy
+ - CE cannot use bundles â€” understand the YAML structure and IaC philosophy
+ - Production: DABs + GitHub Actions = full GitOps workflow
 
 ```python
 
 ```
-# COMPREHENSIVE SUMMARY
 
-## Concepts 81â€“90: Workflows, CI/CD & Operations
+ # COMPREHENSIVE SUMMARY
 
-### What You've Learned
+ ## Concepts 81â€“90: Workflows, CI/CD & Operations
 
-| # | Concept | Level | Key Insight |
-|---|---------|-------|-------------|
-| 81 | Choosing Compute for Jobs | Easy | Job Clusters for prod, All-Purpose for dev only |
-| 82 | Secrets Management | Easy | dbutils.secrets.get() > hardcoded; CE: env vars |
-| 83 | Parameterization | Easy | Widgets + Job Params + Task Values; widgets work in CE |
-| 84 | Notebook Patterns | Easy | %run (shared ns), dbutils.notebook.run() (isolated) |
-| 85 | Multi-Task Workflows | Medium | DAG-based orchestration; CE: Python orchestrator |
-| 86 | Retries & Conditional Logic | Medium | run_if conditions + exponential backoff retries |
-| 87 | Git Integration & Repos | Medium | PR-based workflow for notebooks; main/develop/feature |
-| 88 | Monitoring & Alerting | Medium | SQL Alerts in production; Python monitors in CE |
-| 89 | System Tables | Medium | system.billing/compute/jobs; CE: custom tracking |
-| 90 | Asset Bundles (DABs) | Hard | Infrastructure-as-code for Databricks |
+ ### What You've Learned
 
-### Architecture Overview
+ | # | Concept | Level | Key Insight |
+ |---|---------|-------|-------------|
+ | 81 | Choosing Compute for Jobs | Easy | Job Clusters for prod, All-Purpose for dev only |
+ | 82 | Secrets Management | Easy | dbutils.secrets.get() > hardcoded; CE: env vars |
+ | 83 | Parameterization | Easy | Widgets + Job Params + Task Values; widgets work in CE |
+ | 84 | Notebook Patterns | Easy | %run (shared ns), dbutils.notebook.run() (isolated) |
+ | 85 | Multi-Task Workflows | Medium | DAG-based orchestration; CE: Python orchestrator |
+ | 86 | Retries & Conditional Logic | Medium | run_if conditions + exponential backoff retries |
+ | 87 | Git Integration & Repos | Medium | PR-based workflow for notebooks; main/develop/feature |
+ | 88 | Monitoring & Alerting | Medium | SQL Alerts in production; Python monitors in CE |
+ | 89 | System Tables | Medium | system.billing/compute/jobs; CE: custom tracking |
+ | 90 | Asset Bundles (DABs) | Hard | Infrastructure-as-code for Databricks |
 
-```
-PRODUCTION OPERATIONAL ARCHITECTURE
-====================================
+ ### Architecture Overview
 
-  Developer                   CI/CD                     Databricks Workspace
-  +-------+                  +-------+                  +-------------------+
-  | Write |    git push      | GitHub|   bundle deploy  | Jobs + Pipelines  |
-  | Code  | ---------------->|Actions| ---------------->|                   |
-  | in    |                  |       |                  | +- daily_etl      |
-  | Repos |                  | lint  |                  | +- dq_monitor     |
-  +-------+                  | test  |                  | +- sales_dlt      |
-                             | deploy|                  |                   |
-                             +-------+                  +--------+----------+
-                                                              |
-                                                              | runs
-                                                              v
-                                                       +-------------------+
-                                                       | Monitoring Stack  |
-                                                       | +- SQL Alerts     |
-                                                       | +- System Tables  |
-                                                       | +- Webhooks       |
-                                                       +--------+----------+
-                                                                |
-                                                                v
-                                                         +-------------------+
-                                                         | On-Call Team      |
-                                                         | (PagerDuty/Slack) |
-                                                         +-------------------+
-```
+ ```
+ PRODUCTION OPERATIONAL ARCHITECTURE
+ ====================================
 
-### CE vs Production Feature Matrix
+   Developer                   CI/CD                     Databricks Workspace
+   +-------+                  +-------+                  +-------------------+
+   | Write |    git push      | GitHub|   bundle deploy  | Jobs + Pipelines  |
+   | Code  | ---------------->|Actions| ---------------->|                   |
+   | in    |                  |       |                  | +- daily_etl      |
+   | Repos |                  | lint  |                  | +- dq_monitor     |
+   +-------+                  | test  |                  | +- sales_dlt      |
+                              | deploy|                  |                   |
+                              +-------+                  +--------+----------+
+                                                               |
+                                                               | runs
+                                                               v
+                                                        +-------------------+
+                                                        | Monitoring Stack  |
+                                                        | +- SQL Alerts     |
+                                                        | +- System Tables  |
+                                                        | +- Webhooks       |
+                                                        +--------+----------+
+                                                                 |
+                                                                 v
+                                                          +-------------------+
+                                                          | On-Call Team      |
+                                                          | (PagerDuty/Slack) |
+                                                          +-------------------+
+ ```
 
-| Feature | Community Edition | Production |
-|---------|------------------|-------------|
-| Widgets | Fully supported | Fully supported |
-| %run / dbutils.notebook.run() | Fully supported | Fully supported |
-| %sql / %fs / %sh / %pip | Fully supported | Fully supported |
-| Multi-task Jobs | Not available | Yes (core feature) |
-| Job Clusters | Not available | Yes |
-| Serverless Compute | Not available | Yes |
-| Secret Scopes | Limited / Not available | Yes |
-| Git / Repos | Limited | Yes (full integration) |
-| SQL Alerts (DBSQL) | Not available | Yes |
-| System Tables | Not available | Yes |
-| Webhook Destinations | Not available | Yes |
-| Asset Bundles (DABs) | Not available | Yes |
+ ### CE vs Production Feature Matrix
 
-### Next Steps
-1. **Practice** widget parameterisation â€” it's fully available in CE
-2. **Build** the Python orchestrator for your own ETL tasks
-3. **Study** the databricks.yml structure for when you have production access
-4. **Apply** the retry decorator pattern to your existing code
-5. **Set up** Git-based workflow using Repos (when available)
-6. **Read** Databricks docs on Workflows, DABs, and System Tables
+ | Feature | Community Edition | Production |
+ |---------|------------------|-------------|
+ | Widgets | Fully supported | Fully supported |
+ | %run / dbutils.notebook.run() | Fully supported | Fully supported |
+ | %sql / %fs / %sh / %pip | Fully supported | Fully supported |
+ | Multi-task Jobs | Not available | Yes (core feature) |
+ | Job Clusters | Not available | Yes |
+ | Serverless Compute | Not available | Yes |
+ | Secret Scopes | Limited / Not available | Yes |
+ | Git / Repos | Limited | Yes (full integration) |
+ | SQL Alerts (DBSQL) | Not available | Yes |
+ | System Tables | Not available | Yes |
+ | Webhook Destinations | Not available | Yes |
+ | Asset Bundles (DABs) | Not available | Yes |
+
+ ### Next Steps
+ 1. **Practice** widget parameterisation â€” it's fully available in CE
+ 2. **Build** the Python orchestrator for your own ETL tasks
+ 3. **Study** the databricks.yml structure for when you have production access
+ 4. **Apply** the retry decorator pattern to your existing code
+ 5. **Set up** Git-based workflow using Repos (when available)
+ 6. **Read** Databricks docs on Workflows, DABs, and System Tables
 
 ```python
 
 ```
-## SELF-ASSESSMENT QUIZ
 
-Test your understanding of Concepts 81â€“90:
+ ## SELF-ASSESSMENT QUIZ
 
-### Easy (Concepts 81â€“84)
+ Test your understanding of Concepts 81â€“90:
 
-**Q1:** Which compute type should NEVER be used for production jobs?
-- A) Job Cluster
-- B) Serverless Compute
-- C) All-Purpose Cluster
-- D) Instance Pool
+ ### Easy (Concepts 81â€“84)
 
-**Q2:** How do you retrieve a secret in a Databricks notebook?
-- A) `os.environ.get('SECRET')`
-- B) `dbutils.secrets.get(scope='x', key='y')`
-- C) `open('/etc/secrets/.env').read()`
-- D) `spark.conf.get('secret')`
+ **Q1:** Which compute type should NEVER be used for production jobs?
+ - A) Job Cluster
+ - B) Serverless Compute
+ - C) All-Purpose Cluster
+ - D) Instance Pool
 
-**Q3:** What's the resolution order for parameters?
-- A) Widgets > Code Defaults > Job Params
-- B) Job Params > Widgets > Code Defaults
-- C) Code Defaults > Job Params > Widgets
-- D) All are equal priority
+ **Q2:** How do you retrieve a secret in a Databricks notebook?
+ - A) `os.environ.get('SECRET')`
+ - B) `dbutils.secrets.get(scope='x', key='y')`
+ - C) `open('/etc/secrets/.env').read()`
+ - D) `spark.conf.get('secret')`
 
-**Q4:** What's the difference between `%run` and `dbutils.notebook.run()`?
-- A) No difference â€” they're aliases
-- B) %run shares namespace; dbutils.notebook.run() is isolated
-- C) %run is isolated; dbutils.notebook.run() shares namespace
-- D) %run only works in production
+ **Q3:** What's the resolution order for parameters?
+ - A) Widgets > Code Defaults > Job Params
+ - B) Job Params > Widgets > Code Defaults
+ - C) Code Defaults > Job Params > Widgets
+ - D) All are equal priority
 
-### Medium (Concepts 85â€“89)
+ **Q4:** What's the difference between `%run` and `dbutils.notebook.run()`?
+ - A) No difference â€” they're aliases
+ - B) %run shares namespace; dbutils.notebook.run() is isolated
+ - C) %run is isolated; dbutils.notebook.run() shares namespace
+ - D) %run only works in production
 
-**Q5:** Which run_if condition means "run only if no upstream task failed"?
-- A) ALL_SUCCESS
-- B) ALL_DONE
-- C) NONE_FAILED
-- D) AT_LEAST_ONE_SUCCESS
+ ### Medium (Concepts 85â€“89)
 
-**Q6:** What's the recommended Git branch strategy for Databricks projects?
-- A) Everyone commits directly to main
-- B) Main (prod) <- Develop (staging) <- Feature branches
-- C) One branch per workspace
-- D) No branches needed with notebooks
+ **Q5:** Which run_if condition means "run only if no upstream task failed"?
+ - A) ALL_SUCCESS
+ - B) ALL_DONE
+ - C) NONE_FAILED
+ - D) AT_LEAST_ONE_SUCCESS
 
-**Q7:** Which system table tracks DBU consumption?
-- A) system.compute.clusters
-- B) system.jobs.job_runs
-- C) system.billing.usage
-- D) system.access.audit
+ **Q6:** What's the recommended Git branch strategy for Databricks projects?
+ - A) Everyone commits directly to main
+ - B) Main (prod) <- Develop (staging) <- Feature branches
+ - C) One branch per workspace
+ - D) No branches needed with notebooks
 
-### Hard (Concept 90)
+ **Q7:** Which system table tracks DBU consumption?
+ - A) system.compute.clusters
+ - B) system.jobs.job_runs
+ - C) system.billing.usage
+ - D) system.access.audit
 
-**Q8:** What command deploys a DAB to the staging target?
-- A) `databricks bundle run -t staging`
-- B) `databricks bundle deploy -t staging`
-- C) `databricks bundle push staging`
-- D) `databricks deploy --env staging`
+ ### Hard (Concept 90)
 
-**Q9:** Which file defines ALL resources in a Databricks Asset Bundle?
-- A) `bundle.json`
-- B) `deployment.yaml`
-- C) `databricks.yml`
-- D) `workspace.tf`
+ **Q8:** What command deploys a DAB to the staging target?
+ - A) `databricks bundle run -t staging`
+ - B) `databricks bundle deploy -t staging`
+ - C) `databricks bundle push staging`
+ - D) `databricks deploy --env staging`
 
-**Q10:** What's the primary benefit of DABs over manual UI configuration?
-- A) Faster UI response time
-- B) Infrastructure-as-code: versioned, reproducible, auditable
-- C) Cheaper DBU pricing
-- D) Automatic data quality checks
+ **Q9:** Which file defines ALL resources in a Databricks Asset Bundle?
+ - A) `bundle.json`
+ - B) `deployment.yaml`
+ - C) `databricks.yml`
+ - D) `workspace.tf`
 
----
-### Answers
-1=C, 2=B, 3=B, 4=B, 5=C, 6=B, 7=C, 8=B, 9=C, 10=B
+ **Q10:** What's the primary benefit of DABs over manual UI configuration?
+ - A) Faster UI response time
+ - B) Infrastructure-as-code: versioned, reproducible, auditable
+ - C) Cheaper DBU pricing
+ - D) Automatic data quality checks
 
-**Scoring:** 8-10 = Production Ready | 5-7 = On Track | <5 = Review Needed
+ ---
+ ### Answers
+ 1=C, 2=B, 3=B, 4=B, 5=C, 6=B, 7=C, 8=B, 9=C, 10=B
+
+ **Scoring:** 8-10 = Production Ready | 5-7 = On Track | <5 = Review Needed

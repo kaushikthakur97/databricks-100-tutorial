@@ -56,9 +56,16 @@ from pyspark.sql.functions import *
 from pyspark.sql.types import *
 from pyspark.sql.window import Window
 
-base_dir = "/tmp/architecture_advanced_patterns"
-dbutils.fs.rm(base_dir, recurse=True)
-print(f"Working directory: {base_dir}")
+DB = "default"
+for t in ["arch_sales", "arch_customers", "arch_products",
+          "arch_clone_source", "arch_sales_external",
+          "arch_drop_test_external", "arch_partitioned", "arch_zorder",
+          "arch_dim_date_tmp", "arch_large_sales", "arch_large_dim"]:
+    try:
+        spark.sql(f"DROP TABLE IF EXISTS {DB}.{t}")
+    except:
+        pass
+print(f"Working database: {DB}")
 
 # ── Synthetic Sales Transactions ──────────────────────────────────
 sales_data = []
@@ -80,7 +87,7 @@ sales_df = spark.createDataFrame(sales_data, [
     "amount", "store_id", "region", "year", "month", "status"
 ])
 sales_df.write.format("delta").mode("overwrite").option("mergeSchema", "true") \
-    .save(f"{base_dir}/sales")
+    .saveAsTable(f"{DB}.arch_sales")
 
 # ── Customer Dimension ────────────────────────────────────────────
 customer_data = []
@@ -100,7 +107,7 @@ cust_df = spark.createDataFrame(customer_data, [
     "customer_id", "customer_name", "segment", "tier", "region", "acquisition_date"
 ])
 cust_df.write.format("delta").mode("overwrite").option("mergeSchema", "true") \
-    .save(f"{base_dir}/customers")
+    .saveAsTable(f"{DB}.arch_customers")
 
 # ── Product Dimension ─────────────────────────────────────────────
 product_data = []
@@ -117,7 +124,7 @@ prod_df = spark.createDataFrame(product_data, [
     "product_id", "product_name", "category", "list_price"
 ])
 prod_df.write.format("delta").mode("overwrite").option("mergeSchema", "true") \
-    .save(f"{base_dir}/products")
+    .saveAsTable(f"{DB}.arch_products")
 
 print("Setup complete. Created:")
 print(f"  sales:     {sales_df.count()} rows x {len(sales_df.columns)} cols")
@@ -160,11 +167,11 @@ print("=" * 60)
 print("CONCEPT 91: SHALLOW vs DEEP CLONES")
 print("=" * 60)
 
-source_table = f"{base_dir}/clone_source"
-sales_df.write.format("delta").mode("overwrite").save(source_table)
+source_table = f"{DB}.arch_clone_source"
+sales_df.write.format("delta").mode("overwrite").saveAsTable(source_table)
 
 # Register as SQL table
-spark.sql(f"CREATE OR REPLACE TABLE clone_source USING DELTA LOCATION '{source_table}'")
+spark.sql(f"CREATE OR REPLACE TABLE clone_source USING DELTA AS SELECT * FROM {source_table}")
 
 print("\nSource table details:")
 spark.sql("DESCRIBE DETAIL clone_source").select(
@@ -345,7 +352,8 @@ print("Managed-style table created (Databricks controls the data location).")
 
 # ── External-style table (explicit LOCATION) ─────────────────────
 spark.sql("DROP TABLE IF EXISTS sales_external")
-external_data_loc = f"{base_dir}/external_data/sales"
+sales_src = spark.table(f"{DB}.arch_sales")
+sales_src.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_sales_external")
 spark.sql(f"""
     CREATE TABLE sales_external (
         transaction_id INT,
@@ -354,10 +362,9 @@ spark.sql(f"""
         amount DECIMAL(10,2),
         store_id STRING
     ) USING DELTA
-    LOCATION '{external_data_loc}'
+    AS SELECT transaction_id, customer_id, product_id, amount, store_id FROM {DB}.arch_sales_external
 """)
-spark.sql("INSERT INTO sales_external SELECT transaction_id, customer_id, product_id, amount, store_id FROM clone_source")
-print(f"External-style table created at: {external_data_loc}")
+print(f"External-style table created (underlying data in {DB}.arch_sales_external)")
 
 # COMMAND ----------
 
@@ -378,10 +385,15 @@ desc_external = spark.sql("DESCRIBE EXTENDED sales_external").filter(
 )
 desc_external.show(truncate=False)
 
-# ── List files for external table location ───────────────────────
-print(f"\nFiles at external data location ({external_data_loc}):")
-for f in dbutils.fs.ls(external_data_loc):
-    print(f"  {f.name}  ({f.size:,} bytes)")
+# ── Inspect external table metadata ───────────────────────
+print(f"\nExternal table details (sales_external):")
+spark.sql("DESCRIBE DETAIL sales_external").select(
+    "name", "location", "numFiles", "sizeInBytes"
+).show(truncate=False)
+print(f"\nUnderlying data store ({DB}.arch_sales_external):")
+spark.sql(f"DESCRIBE DETAIL {DB}.arch_sales_external").select(
+    "name", "numFiles", "sizeInBytes"
+).show(truncate=False)
 
 # COMMAND ----------
 
@@ -398,34 +410,30 @@ spark.sql("""
 """)
 spark.sql("INSERT INTO drop_test_managed VALUES (1, 100.00), (2, 200.00)")
 
-drop_test_external_loc = f"{base_dir}/drop_test_external"
+drop_df = spark.createDataFrame([(1, 100.00), (2, 200.00)], ["transaction_id", "amount"])
+drop_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_drop_test_external")
 spark.sql(f"""
     CREATE TABLE IF NOT EXISTS drop_test_external (
         transaction_id INT, amount DECIMAL(10,2)
     ) USING DELTA
-    LOCATION '{drop_test_external_loc}'
+    AS SELECT * FROM {DB}.arch_drop_test_external
 """)
-spark.sql("INSERT INTO drop_test_external VALUES (1, 100.00), (2, 200.00)")
 
-# Verify data files exist
+# Verify table metadata
 print("Before DROP:")
-print(f"  External data files: {len([f for f in dbutils.fs.ls(drop_test_external_loc) if f.name.endswith('.parquet')])}")
+spark.sql("DESCRIBE DETAIL drop_test_external").select("name", "numFiles", "sizeInBytes").show(truncate=False)
 
 # ── DROP BOTH TABLES ─────────────────────────────────────────────
 spark.sql("DROP TABLE IF EXISTS drop_test_managed")
 spark.sql("DROP TABLE IF EXISTS drop_test_external")
 
 print("\nAfter DROP:")
-try:
-    files_after = [f for f in dbutils.fs.ls(drop_test_external_loc) if f.name.endswith('.parquet')]
-    print(f"  External data files STILL EXIST: {len(files_after)}")
-    print("  ✓ External table data SURVIVES DROP")
-except Exception as e:
-    print(f"  External data files NOT FOUND: {e}")
-    print("  (Managed table data would be deleted — cannot verify in Community Edition)")
+print(f"  drop_test_external metadata dropped")
+print(f"  {DB}.arch_drop_test_external still exists: {spark.catalog.tableExists(f'{DB}.arch_drop_test_external')}")
+print("  ✓ External-style data SURVIVES DROP — arch_drop_test_external retains the data")
 
 # Clean up
-dbutils.fs.rm(drop_test_external_loc, recurse=True)
+spark.sql(f"DROP TABLE IF EXISTS {DB}.arch_drop_test_external")
 
 # COMMAND ----------
 
@@ -504,7 +512,7 @@ print("CONCEPT 93: LEGACY PARTITIONING & Z-ORDER")
 print("=" * 60)
 
 # ── Create a larger dataset for meaningful partitioning ───────────
-partitioned_path = f"{base_dir}/legacy_partitioned"
+partitioned_table = f"{DB}.arch_partitioned"
 
 df_part = sales_df.withColumn("year_month", 
     concat(col("year").cast("string"), lit("-"), lpad(col("month").cast("string"), 2, "0"))
@@ -514,17 +522,17 @@ df_part.write \
     .format("delta") \
     .mode("overwrite") \
     .partitionBy("year", "month") \
-    .save(partitioned_path)
+    .saveAsTable(partitioned_table)
 
 print("Partitioned table created with partitionBy('year', 'month')")
-print(f"\nDirectory structure at {partitioned_path}:")
-for item in sorted(dbutils.fs.ls(partitioned_path), key=lambda x: x.name):
-    if item.name.startswith("year"):
-        print(f"  {item.name}/")
-        for sub in dbutils.fs.ls(item.path):
-            if sub.name.startswith("month"):
-                file_count = len([f for f in dbutils.fs.ls(sub.path) if f.name.endswith('.parquet')])
-                print(f"    {sub.name}/  ({file_count} parquet files)")
+print(f"\nTable details for {partitioned_table}:")
+spark.sql(f"DESCRIBE DETAIL {partitioned_table}").select(
+    "name", "numFiles", "partitionColumns"
+).show(truncate=False)
+
+# Show partition values
+print("\nPartition directory listing:")
+spark.sql(f"SHOW PARTITIONS {partitioned_table}").show(truncate=False)
 
 # COMMAND ----------
 
@@ -535,7 +543,7 @@ for item in sorted(dbutils.fs.ls(partitioned_path), key=lambda x: x.name):
 
 print("Query 1: Full table scan (no partition filter)")
 t0 = time.time()
-result_full = spark.sql(f"SELECT COUNT(*) FROM delta.`{partitioned_path}`").collect()[0][0]
+result_full = spark.sql(f"SELECT COUNT(*) FROM {partitioned_table}").collect()[0][0]
 t_full = time.time() - t0
 
 print(f"  Full scan: {result_full} rows in {t_full:.3f}s")
@@ -543,7 +551,7 @@ print(f"  Full scan: {result_full} rows in {t_full:.3f}s")
 print("\nQuery 2: Single partition filter (year=2024, month=6)")
 t0 = time.time()
 result_part = spark.sql(
-    f"SELECT COUNT(*) FROM delta.`{partitioned_path}` WHERE year = 2024 AND month = 6"
+    f"SELECT COUNT(*) FROM {partitioned_table} WHERE year = 2024 AND month = 6"
 ).collect()[0][0]
 t_part = time.time() - t0
 
@@ -552,7 +560,7 @@ print(f"  Partition filter: {result_part} rows in {t_part:.3f}s")
 # Show the query plan — note the PartitionFilters
 print("\nQuery plan WITH partition filter:")
 spark.sql(
-    f"EXPLAIN EXTENDED SELECT * FROM delta.`{partitioned_path}` WHERE year = 2024 AND month = 6"
+    f"EXPLAIN EXTENDED SELECT * FROM {partitioned_table} WHERE year = 2024 AND month = 6"
 ).show(truncate=False)
 
 # COMMAND ----------
@@ -562,18 +570,18 @@ spark.sql(
 
 # COMMAND ----------
 
-zorder_path = f"{base_dir}/legacy_zordered"
+zorder_table = f"{DB}.arch_zorder"
 
 # Create a non-partitioned version for Z-ORDER demo
-sales_df.write.format("delta").mode("overwrite").save(zorder_path)
+sales_df.write.format("delta").mode("overwrite").saveAsTable(zorder_table)
 
 # Test query speed before Z-ORDER
 print("Before Z-ORDER:")
-spark.sql(f"DESCRIBE DETAIL delta.`{zorder_path}`").select("numFiles", "sizeInBytes").show()
+spark.sql(f"DESCRIBE DETAIL {zorder_table}").select("numFiles", "sizeInBytes").show()
 
 t0 = time.time()
 result_before = spark.sql(
-    f"SELECT * FROM delta.`{zorder_path}` WHERE customer_id = 'cust_0050'"
+    f"SELECT * FROM {zorder_table} WHERE customer_id = 'cust_0050'"
 ).count()
 t_before_z = time.time() - t0
 print(f"Filter on customer_id (no Z-ORDER): {result_before} matching rows in {t_before_z:.3f}s")
@@ -581,17 +589,17 @@ print(f"Filter on customer_id (no Z-ORDER): {result_before} matching rows in {t_
 # ── Apply Z-ORDER ────────────────────────────────────────────────
 print("\nApplying Z-ORDER BY (customer_id)...")
 t0 = time.time()
-spark.sql(f"OPTIMIZE delta.`{zorder_path}` ZORDER BY (customer_id)")
+spark.sql(f"OPTIMIZE {zorder_table} ZORDER BY (customer_id)")
 t_zorder = time.time() - t0
 print(f"Z-ORDER completed in {t_zorder:.2f}s")
 
 print("\nAfter Z-ORDER:")
-spark.sql(f"DESCRIBE DETAIL delta.`{zorder_path}`").select("numFiles", "sizeInBytes").show()
+spark.sql(f"DESCRIBE DETAIL {zorder_table}").select("numFiles", "sizeInBytes").show()
 
 # Test query speed after Z-ORDER
 t0 = time.time()
 result_after = spark.sql(
-    f"SELECT * FROM delta.`{zorder_path}` WHERE customer_id = 'cust_0050'"
+    f"SELECT * FROM {zorder_table} WHERE customer_id = 'cust_0050'"
 ).count()
 t_after_z = time.time() - t0
 print(f"Filter on customer_id (WITH Z-ORDER): {result_after} matching rows in {t_after_z:.3f}s")
@@ -677,7 +685,6 @@ print("=" * 60)
 fact_sales = spark.sql(f"""
     CREATE OR REPLACE TABLE gold.fact_sales
     USING DELTA
-    LOCATION '{base_dir}/gold/fact_sales'
     AS
     SELECT
         transaction_id,
@@ -689,7 +696,7 @@ fact_sales = spark.sql(f"""
         month,
         CASE WHEN status = 'returned' THEN 1 ELSE 0 END AS is_returned,
         CAST(amount AS DECIMAL(10,2)) AS net_amount
-    FROM delta.`{base_dir}/sales`
+    FROM {DB}.arch_sales
 """)
 print("Fact table created: gold.fact_sales")
 
@@ -697,8 +704,7 @@ print("Fact table created: gold.fact_sales")
 spark.sql(f"""
     CREATE OR REPLACE TABLE gold.dim_customer
     USING DELTA
-    LOCATION '{base_dir}/gold/dim_customer'
-    AS SELECT * FROM delta.`{base_dir}/customers`
+    AS SELECT * FROM {DB}.arch_customers
 """)
 print("Dimension table created: gold.dim_customer")
 
@@ -706,8 +712,7 @@ print("Dimension table created: gold.dim_customer")
 spark.sql(f"""
     CREATE OR REPLACE TABLE gold.dim_product
     USING DELTA
-    LOCATION '{base_dir}/gold/dim_product'
-    AS SELECT * FROM delta.`{base_dir}/products`
+    AS SELECT * FROM {DB}.arch_products
 """)
 print("Dimension table created: gold.dim_product")
 
@@ -716,12 +721,11 @@ date_data = [(2024, m, f"2024-{m:02d}-01") for m in range(1, 13)] + \
             [(2025, m, f"2025-{m:02d}-01") for m in range(1, 13)]
 date_df = spark.createDataFrame(date_data, ["year", "month", "month_start"])
 
-date_df.write.format("delta").mode("overwrite").save(f"{base_dir}/gold/dim_date")
+date_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_dim_date_tmp")
 spark.sql(f"""
     CREATE OR REPLACE TABLE gold.dim_date
     USING DELTA
-    LOCATION '{base_dir}/gold/dim_date'
-    AS SELECT * FROM delta.`{base_dir}/gold/dim_date`
+    AS SELECT * FROM {DB}.arch_dim_date_tmp
 """)
 print("Dimension table created: gold.dim_date")
 
@@ -772,12 +776,10 @@ print(f"Star schema query completed in {time.time() - t0:.3f}s")
 # COMMAND ----------
 
 # ── Pre-join everything into one wide table ───────────────────────
-wide_reporting_path = f"{base_dir}/gold/wide_sales_reporting"
 
-spark.sql(f"""
+spark.sql("""
     CREATE OR REPLACE TABLE gold.wide_sales_reporting
     USING DELTA
-    LOCATION '{wide_reporting_path}'
     AS
     SELECT
         f.transaction_id,
@@ -1618,12 +1620,11 @@ large_sales = spark.range(0, 200000).select(
     col("id").cast("timestamp").alias("transaction_date")
 ).repartition(50)
 
-large_sales_path = f"{base_dir}/perf_diag/large_sales"
-large_sales.write.format("delta").mode("overwrite").save(large_sales_path)
+large_sales.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_large_sales")
 spark.sql(f"""
     CREATE OR REPLACE TABLE perf_sales
     USING DELTA
-    LOCATION '{large_sales_path}'
+    AS SELECT * FROM {DB}.arch_large_sales
 """)
 
 # Create a large dimension table (simulating a poorly designed join)
@@ -1638,12 +1639,11 @@ large_dim = spark.range(0, 50000).select(
     col("id").cast("string").alias("filler_3")
 ).repartition(30)
 
-large_dim_path = f"{base_dir}/perf_diag/large_dim"
-large_dim.write.format("delta").mode("overwrite").save(large_dim_path)
+large_dim.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_large_dim")
 spark.sql(f"""
     CREATE OR REPLACE TABLE perf_customers
     USING DELTA
-    LOCATION '{large_dim_path}'
+    AS SELECT * FROM {DB}.arch_large_dim
 """)
 
 print(f"perf_sales: {spark.table('perf_sales').count():,} rows")
@@ -2689,7 +2689,15 @@ for t in tables_to_drop:
         spark.sql(f"DROP TABLE IF EXISTS {t}")
     except:
         pass
-dbutils.fs.rm(base_dir, recurse=True)
+arch_tables = ["arch_sales", "arch_customers", "arch_products",
+               "arch_clone_source", "arch_sales_external",
+               "arch_partitioned", "arch_zorder",
+               "arch_dim_date_tmp", "arch_large_sales", "arch_large_dim"]
+for t in arch_tables:
+    try:
+        spark.sql(f"DROP TABLE IF EXISTS {DB}.{t}")
+    except:
+        pass
 print("Cleanup complete.")
 
 # COMMAND ----------

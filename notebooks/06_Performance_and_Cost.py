@@ -215,21 +215,21 @@ df.printSchema()
 # COMMAND ----------
 
 # Write with many files (partition by region to see partitioning effects)
-table_path = "/tmp/delta/perf_demo/transactions"
-print(f"Writing {NUM_FILES} files to {table_path}...")
+table_name = "default.perf_transactions"
+spark.sql("DROP TABLE IF EXISTS default.perf_transactions")
+print(f"Writing {NUM_FILES} files to {table_name}...")
 t0 = time.time()
 
 df.repartition(NUM_FILES).write \
     .mode("overwrite") \
     .option("maxRecordsPerFile", 100000) \
     .partitionBy("region") \
-    .save(table_path)
+    .saveAsTable(table_name)
 
 print(f"Write completed in {time.time()-t0:.1f}s")
 
-# Verify files
-files = dbutils.fs.ls(table_path)
-print(f"\nTotal files in Delta table: {len([f for f in files if f.name.endswith('.parquet')])} (not counting _delta_log)")
+detail = spark.sql("DESCRIBE DETAIL default.perf_transactions")
+print(f"\nTotal files in Delta table: {detail.select('numFiles').collect()[0][0]} (data files)")
 
 # COMMAND ----------
 
@@ -238,7 +238,7 @@ print(f"\nTotal files in Delta table: {len([f for f in files if f.name.endswith(
 
 # COMMAND ----------
 
-transactions = spark.read.format("delta").load(table_path)
+transactions = spark.read.table(table_name)
 
 print("=" * 80)
 print("QUERY 1: Filter on partition column (region = 'North')")
@@ -322,29 +322,26 @@ print(f"{'Partition + date range + count':<55} {t3:>7.2f}s {result3:>10,}")
 
 # Check the statistics Delta maintains
 print("DESCRIBE DETAIL:")
-display(spark.sql(f"DESCRIBE DETAIL delta.`{table_path}`"))
+display(spark.sql("DESCRIBE DETAIL default.perf_transactions"))
 
 # COMMAND ----------
 
 print("DESCRIBE HISTORY:")
-display(spark.sql(f"DESCRIBE HISTORY delta.`{table_path}`"))
+display(spark.sql("DESCRIBE HISTORY default.perf_transactions"))
 
 # COMMAND ----------
 
-# Inspect Delta log for statistics
-delta_log_path = f"{table_path}/_delta_log"
-log_files = dbutils.fs.ls(delta_log_path)
-print(f"Delta log files at {delta_log_path}:")
-for f in log_files[:10]:
-    print(f"  {f.name} ({f.size} bytes)")
+# Inspect Delta table history for statistics
+history_df = spark.sql("DESCRIBE HISTORY default.perf_transactions")
+log_entries = history_df.select("version", "timestamp", "operation").orderBy("version").collect()
+print("Delta table history entries:")
+for e in log_entries[:10]:
+    print(f"  version {e['version']}: {e['operation']} at {e['timestamp']}")
 
-# Read the last checkpoint file if it exists
-checkpoint_path = f"{table_path}/_delta_log/_last_checkpoint"
-try:
-    checkpoint_info = spark.read.text(checkpoint_path).collect()
-    print(f"\nLast checkpoint: {checkpoint_info}")
-except:
-    print("\nNo _last_checkpoint file (expected after first write)")
+# Check table properties
+detail_df = spark.sql("DESCRIBE DETAIL default.perf_transactions")
+props = detail_df.select("properties").collect()[0][0]
+print(f"\nTable properties: {props}")
 
 # COMMAND ----------
 
@@ -392,7 +389,8 @@ except:
 
 # COMMAND ----------
 
-manual_maintenance_path = "/tmp/delta/perf_demo/manual_maintenance"
+manual_maintenance_table = "default.perf_maintenance"
+spark.sql("DROP TABLE IF EXISTS default.perf_maintenance")
 
 # Create a fresh table with small files
 print("Creating table with many small files...")
@@ -407,14 +405,12 @@ df_maintenance = spark.range(0, 500000).select(
 df_maintenance.repartition(100).write \
     .mode("overwrite") \
     .format("delta") \
-    .save(manual_maintenance_path)
+    .saveAsTable(manual_maintenance_table)
 
 # Count files before OPTIMIZE
-files_before = len([f for f in dbutils.fs.ls(manual_maintenance_path) if f.name.endswith('.parquet')])
+detail_before = spark.sql("DESCRIBE DETAIL default.perf_maintenance")
+files_before = detail_before.select("numFiles").collect()[0][0]
 print(f"Files before OPTIMIZE: {files_before}")
-
-# Read table, check file count via DESCRIBE DETAIL
-detail_before = spark.sql(f"DESCRIBE DETAIL delta.`{manual_maintenance_path}`")
 detail_before.select("numFiles", "sizeInBytes").show()
 
 # COMMAND ----------
@@ -423,13 +419,13 @@ detail_before.select("numFiles", "sizeInBytes").show()
 print("Running manual OPTIMIZE...")
 t0 = time.time()
 
-spark.sql(f"OPTIMIZE delta.`{manual_maintenance_path}`")
+spark.sql("OPTIMIZE default.perf_maintenance")
 
 t_optimize = time.time() - t0
 print(f"OPTIMIZE completed in {t_optimize:.1f}s")
 
 # Check file count after
-detail_after = spark.sql(f"DESCRIBE DETAIL delta.`{manual_maintenance_path}`")
+detail_after = spark.sql("DESCRIBE DETAIL default.perf_maintenance")
 detail_after.select("numFiles", "sizeInBytes").show()
 
 files_after = detail_after.select("numFiles").collect()[0][0]
@@ -488,14 +484,15 @@ for i in range(1, 40):
 
 df_wide = spark.range(0, 200000).select(*wide_cols)
 
-wide_table_path = "/tmp/delta/perf_demo/wide_table"
+wide_table_name = "default.perf_wide_table"
+spark.sql("DROP TABLE IF EXISTS default.perf_wide_table")
 df_wide.repartition(10).write \
     .mode("overwrite") \
     .format("delta") \
-    .save(wide_table_path)
+    .saveAsTable(wide_table_name)
 
 print("Wide table created.")
-spark.read.format("delta").load(wide_table_path).printSchema()
+spark.read.table(wide_table_name).printSchema()
 
 # COMMAND ----------
 
@@ -507,12 +504,12 @@ spark.read.format("delta").load(wide_table_path).printSchema()
 # ANALYZE the wide table
 print("Running ANALYZE TABLE to collect statistics...")
 t0 = time.time()
-spark.sql(f"ANALYZE TABLE delta.`{wide_table_path}` COMPUTE STATISTICS FOR ALL COLUMNS")
+spark.sql("ANALYZE TABLE default.perf_wide_table COMPUTE STATISTICS FOR ALL COLUMNS")
 print(f"ANALYZE completed in {time.time()-t0:.1f}s")
 
 # Show statistics
 print("\nColumn Statistics (DESCRIBE EXTENDED):")
-spark.sql(f"DESCRIBE EXTENDED delta.`{wide_table_path}`").show(50, truncate=False)
+spark.sql("DESCRIBE EXTENDED default.perf_wide_table").show(50, truncate=False)
 
 # COMMAND ----------
 
@@ -523,7 +520,7 @@ spark.sql(f"DESCRIBE EXTENDED delta.`{wide_table_path}`").show(50, truncate=Fals
 
 # COMMAND ----------
 
-wide_df = spark.read.format("delta").load(wide_table_path)
+wide_df = spark.read.table(wide_table_name)
 
 print("=" * 80)
 print("FILTER ON col_01 (within first 32 — HAS STATISTICS)")
@@ -564,11 +561,11 @@ print(f"Speedup from stats:               {t_without/t_with:.1f}x faster with st
 # Show table details including statistics configuration
 print("TABLE DETAILS:")
 
-detail = spark.sql(f"DESCRIBE DETAIL delta.`{wide_table_path}`")
+detail = spark.sql("DESCRIBE DETAIL default.perf_wide_table")
 detail.select("name", "numFiles", "sizeInBytes", "properties").show(truncate=False)
 
 print("\nTABLE HISTORY (last 5 operations):")
-history = spark.sql(f"DESCRIBE HISTORY delta.`{wide_table_path}`")
+history = spark.sql("DESCRIBE HISTORY default.perf_wide_table")
 history.select("version", "timestamp", "operation", "operationMetrics").show(5, truncate=False)
 
 # COMMAND ----------
@@ -624,12 +621,10 @@ ALTER TABLE my_table SET TBLPROPERTIES (
 
 # COMMAND ----------
 
-write_test_path = "/tmp/delta/perf_demo/write_opt"
-
 # Cleanup if exists
-dbutils.fs.rm(write_test_path + "_base", True)
-dbutils.fs.rm(write_test_path + "_coalesced", True)
-dbutils.fs.rm(write_test_path + "_optimized", True)
+spark.sql("DROP TABLE IF EXISTS default.perf_write_opt_base")
+spark.sql("DROP TABLE IF EXISTS default.perf_write_opt_coalesced")
+spark.sql("DROP TABLE IF EXISTS default.perf_write_opt_optimized")
 
 # Generate test data
 print("Generating write test data...")
@@ -649,7 +644,7 @@ df_write = df_write.repartition(200)
 print("\nStrategy 1: Writing without optimization (many small files)...")
 t0 = time.time()
 df_write.write.mode("overwrite").format("delta") \
-    .save(write_test_path + "_base")
+    .saveAsTable("default.perf_write_opt_base")
 t1 = time.time() - t0
 print(f"  Write time: {t1:.1f}s")
 
@@ -657,7 +652,7 @@ print(f"  Write time: {t1:.1f}s")
 print("\nStrategy 2: Writing with coalesce(8) before write...")
 t0 = time.time()
 df_write.coalesce(8).write.mode("overwrite").format("delta") \
-    .save(write_test_path + "_coalesced")
+    .saveAsTable("default.perf_write_opt_coalesced")
 t2 = time.time() - t0
 print(f"  Write time: {t2:.1f}s")
 
@@ -666,7 +661,7 @@ print("\nStrategy 3: Writing with maxRecordsPerFile=50000...")
 t0 = time.time()
 df_write.coalesce(16).write.mode("overwrite").format("delta") \
     .option("maxRecordsPerFile", 50000) \
-    .save(write_test_path + "_optimized")
+    .saveAsTable("default.perf_write_opt_optimized")
 t3 = time.time() - t0
 print(f"  Write time: {t3:.1f}s")
 
@@ -679,22 +674,22 @@ print(f"  Write time: {t3:.1f}s")
 
 # Analyze each strategy
 strategies = [
-    ("No Optimization", write_test_path + "_base"),
-    ("Coalesce(8)", write_test_path + "_coalesced"),
-    ("maxRecordsPerFile=50000", write_test_path + "_optimized"),
+    ("No Optimization", "default.perf_write_opt_base"),
+    ("Coalesce(8)", "default.perf_write_opt_coalesced"),
+    ("maxRecordsPerFile=50000", "default.perf_write_opt_optimized"),
 ]
 
 print(f"{'Strategy':<30} {'Files':>6} {'Size (MB)':>10} {'Read Time':>10}")
 print("-" * 60)
 
-for name, path in strategies:
-    detail = spark.sql(f"DESCRIBE DETAIL delta.`{path}`")
+for name, tbl_name in strategies:
+    detail = spark.sql(f"DESCRIBE DETAIL {tbl_name}")
     row = detail.select("numFiles", "sizeInBytes").collect()[0]
     num_files = row[0]
     size_mb = row[1] / (1024 * 1024)
     
     # Time a read
-    df_test = spark.read.format("delta").load(path)
+    df_test = spark.read.table(tbl_name)
     t0 = time.time()
     df_test.filter(col("group_id") == 50).count()
     read_time = time.time() - t0
@@ -708,8 +703,7 @@ for name, path in strategies:
 
 # COMMAND ----------
 
-optimize_write_path = "/tmp/delta/perf_demo/optimize_write"
-dbutils.fs.rm(optimize_write_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_optimize_write")
 
 # Test with optimizeWrite enabled
 print("Writing with optimizeWrite enabled...")
@@ -720,18 +714,18 @@ spark.conf.set("spark.databricks.delta.optimizeWrite.binSize", "512")
 
 df_write.write.mode("overwrite").format("delta") \
     .option("optimizeWrite", "true") \
-    .save(optimize_write_path)
+    .saveAsTable("default.perf_optimize_write")
 
 t_opt_write = time.time() - t0
 print(f"Write time (optimizeWrite=true): {t_opt_write:.1f}s")
 
 # Check file count
-detail = spark.sql(f"DESCRIBE DETAIL delta.`{optimize_write_path}`")
+detail = spark.sql("DESCRIBE DETAIL default.perf_optimize_write")
 detail.select("numFiles", "sizeInBytes").show()
 
 # Time a read
 t0 = time.time()
-spark.read.format("delta").load(optimize_write_path) \
+spark.read.table("default.perf_optimize_write") \
     .filter(col("group_id") == 50).count()
 t_read_opt = time.time() - t0
 print(f"Read time (optimized): {t_read_opt:.2f}s")
@@ -1028,8 +1022,7 @@ Usage monitoring (full platform):
 # COMMAND ----------
 
 # Create a more complex dataset for query plan analysis
-plan_test_path = "/tmp/delta/perf_demo/query_plan"
-dbutils.fs.rm(plan_test_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_query_plan")
 
 print("Creating test data for query plan analysis...")
 df_plan = spark.range(0, 500000).select(
@@ -1041,9 +1034,9 @@ df_plan = spark.range(0, 500000).select(
     (rand(43) * 100).cast("int").alias("item_count"),
 )
 
-df_plan.write.mode("overwrite").format("delta").save(plan_test_path)
+df_plan.write.mode("overwrite").format("delta").saveAsTable("default.perf_query_plan")
 
-orders = spark.read.format("delta").load(plan_test_path)
+orders = spark.read.table("default.perf_query_plan")
 print(f"Orders: {orders.count():,} rows")
 
 # COMMAND ----------
@@ -1144,16 +1137,15 @@ print("COMPLEX QUERY WITH EXPLAIN EXTENDED")
 print("=" * 80)
 
 # Create a second table for join analysis
-customer_path = "/tmp/delta/perf_demo/customers"
-dbutils.fs.rm(customer_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_customers")
 
 spark.range(1, 5001).select(
     col("id").alias("customer_id"),
     (col("id") % 5).alias("region_id"),
     rand(44).alias("loyalty_score"),
-).write.mode("overwrite").format("delta").save(customer_path)
+).write.mode("overwrite").format("delta").saveAsTable("default.perf_customers")
 
-customers = spark.read.format("delta").load(customer_path)
+customers = spark.read.table("default.perf_customers")
 
 # Complex query with join, filter, aggregate, order
 complex_query = orders.alias("o") \
@@ -1262,8 +1254,8 @@ for row in result[:5]:
 
 # COMMAND ----------
 
-join_test_dir = "/tmp/delta/perf_demo/joins"
-dbutils.fs.rm(join_test_dir, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_joins_fact")
+spark.sql("DROP TABLE IF EXISTS default.perf_joins_dim")
 
 NUM_FACT = 1000000
 NUM_DIM = 1000
@@ -1289,8 +1281,8 @@ dim = spark.range(1, NUM_DIM + 1).select(
 )
 
 # Write both
-fact.write.mode("overwrite").format("delta").save(f"{join_test_dir}/fact")
-dim.write.mode("overwrite").format("delta").save(f"{join_test_dir}/dim")
+fact.write.mode("overwrite").format("delta").saveAsTable("default.perf_joins_fact")
+dim.write.mode("overwrite").format("delta").saveAsTable("default.perf_joins_dim")
 
 print(f"Fact table: {fact.count():,} rows")
 print(f"Dim table:  {dim.count():,} rows")
@@ -1302,8 +1294,8 @@ print(f"Dim table:  {dim.count():,} rows")
 
 # COMMAND ----------
 
-fact_df = spark.read.format("delta").load(f"{join_test_dir}/fact")
-dim_df = spark.read.format("delta").load(f"{join_test_dir}/dim")
+fact_df = spark.read.table("default.perf_joins_fact")
+dim_df = spark.read.table("default.perf_joins_dim")
 
 print("TEST 1: Default join (auto broadcast)")
 print("-" * 50)
@@ -1503,8 +1495,7 @@ for name, t in timings:
 
 # COMMAND ----------
 
-merge_test_path = "/tmp/delta/perf_demo/merge_test"
-dbutils.fs.rm(merge_test_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_merge_test")
 
 print("Creating base table for MERGE testing...")
 
@@ -1518,11 +1509,11 @@ merge_base = spark.range(0, 500000).select(
     lit("old").alias("status"),
 )
 
-merge_base.write.mode("overwrite").format("delta").save(merge_test_path)
+merge_base.write.mode("overwrite").format("delta").saveAsTable("default.perf_merge_test")
 print(f"Base table: {merge_base.count():,} rows")
 
 # Show file distribution
-detail = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 print(f"Initial files: {detail.select('numFiles').collect()[0][0]}")
 print(f"Initial size: {detail.select('sizeInBytes').collect()[0][0] / 1024 / 1024:.1f} MB")
 
@@ -1543,16 +1534,16 @@ updates_wide = spark.range(1, 5001).select(
 # Create a temp view for MERGE
 updates_wide.createOrReplaceTempView("updates_wide")
 
-spark.sql(f"""
+spark.sql("""
     CREATE OR REPLACE TEMP VIEW base_table AS
-    SELECT * FROM delta.`{merge_test_path}`
+    SELECT * FROM default.perf_merge_test
 """)
 
 print("MERGE 1: Wide MERGE (touching many products across many files)")
 print("-" * 60)
 
-merge_sql_1 = f"""
-MERGE INTO delta.`{merge_test_path}` AS target
+merge_sql_1 = """
+MERGE INTO default.perf_merge_test AS target
 USING updates_wide AS source
 ON target.product_id = source.product_id
 WHEN MATCHED THEN UPDATE SET
@@ -1566,7 +1557,7 @@ spark.sql(merge_sql_1)
 t_merge_wide = time.time() - t0
 
 # Check what happened
-history_wide = spark.sql(f"DESCRIBE HISTORY delta.`{merge_test_path}`") \
+history_wide = spark.sql("DESCRIBE HISTORY default.perf_merge_test") \
     .filter(col("operation") == "MERGE") \
     .select("operationMetrics") \
     .collect()
@@ -1575,7 +1566,7 @@ print(f"MERGE Wide completed in {t_merge_wide:.2f}s")
 if history_wide:
     print(f"Operation metrics: {history_wide[0]['operationMetrics']}")
 
-detail1 = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail1 = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 files_after_wide = detail1.select("numFiles").collect()[0][0]
 print(f"Files after wide MERGE: {files_after_wide}")
 
@@ -1587,8 +1578,8 @@ print(f"Files after wide MERGE: {files_after_wide}")
 # COMMAND ----------
 
 # Reset the table for a fair second test
-dbutils.fs.rm(merge_test_path, True)
-merge_base.write.mode("overwrite").format("delta").save(merge_test_path)
+spark.sql("DROP TABLE IF EXISTS default.perf_merge_test")
+merge_base.write.mode("overwrite").format("delta").saveAsTable("default.perf_merge_test")
 print("Table reset to initial state.")
 
 # COMMAND ----------
@@ -1610,8 +1601,8 @@ updates_narrow.createOrReplaceTempView("updates_narrow")
 print("MERGE 2: Targeted MERGE (single product)")
 print("-" * 60)
 
-merge_sql_2 = f"""
-MERGE INTO delta.`{merge_test_path}` AS target
+merge_sql_2 = """
+MERGE INTO default.perf_merge_test AS target
 USING updates_narrow AS source
 ON target.product_id = source.product_id
 WHEN MATCHED THEN UPDATE SET
@@ -1624,7 +1615,7 @@ t0 = time.time()
 spark.sql(merge_sql_2)
 t_merge_narrow = time.time() - t0
 
-history_narrow = spark.sql(f"DESCRIBE HISTORY delta.`{merge_test_path}`") \
+history_narrow = spark.sql("DESCRIBE HISTORY default.perf_merge_test") \
     .filter(col("operation") == "MERGE") \
     .select("operationMetrics") \
     .collect()
@@ -1633,7 +1624,7 @@ print(f"MERGE Targeted completed in {t_merge_narrow:.2f}s")
 if history_narrow:
     print(f"Operation metrics: {history_narrow[0]['operationMetrics']}")
 
-detail2 = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail2 = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 files_after_narrow = detail2.select("numFiles").collect()[0][0]
 print(f"Files after targeted MERGE: {files_after_narrow}")
 
@@ -1645,11 +1636,11 @@ print(f"Files after targeted MERGE: {files_after_narrow}")
 # COMMAND ----------
 
 # Reset table
-dbutils.fs.rm(merge_test_path, True)
-merge_base.write.mode("overwrite").format("delta").save(merge_test_path)
+spark.sql("DROP TABLE IF EXISTS default.perf_merge_test")
+merge_base.write.mode("overwrite").format("delta").saveAsTable("default.perf_merge_test")
 print("Table reset for DELETE + INSERT test.")
 
-merge_base_df = spark.read.format("delta").load(merge_test_path)
+merge_base_df = spark.read.table("default.perf_merge_test")
 
 print("\nMERGE 3: DELETE + INSERT approach (alternative to MERGE)")
 print("-" * 60)
@@ -1663,7 +1654,7 @@ products_to_update = [p.product_id for p in updates_wide.select("product_id").di
 
 # Step 2: Delete old rows
 from delta.tables import DeltaTable
-delta_table = DeltaTable.forPath(spark, merge_test_path)
+delta_table = DeltaTable.forName(spark, "default.perf_merge_test")
 
 # For the DELETE + INSERT approach, we'll use the DeltaTable API
 # First delete matching rows, then insert new ones
@@ -1682,13 +1673,13 @@ insert_df = updated_rows.select(
     col("amount"), col("quantity"), col("status")
 )
 
-insert_df.write.mode("append").format("delta").save(merge_test_path)
+insert_df.write.mode("append").format("delta").saveAsTable("default.perf_merge_test")
 
 t_delete_insert = time.time() - t0
 
 print(f"DELETE + INSERT completed in {t_delete_insert:.2f}s")
 
-detail3 = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail3 = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 print(f"Files after DELETE + INSERT: {detail3.select('numFiles').collect()[0][0]}")
 
 # COMMAND ----------
@@ -1702,12 +1693,12 @@ print("=" * 80)
 print("DESCRIBE HISTORY — COMPARE ALL OPERATIONS")
 print("=" * 80)
 
-history = spark.sql(f"DESCRIBE HISTORY delta.`{merge_test_path}`")
+history = spark.sql("DESCRIBE HISTORY default.perf_merge_test")
 history.select("version", "timestamp", "operation", "operationMetrics").show(20, truncate=False)
 
 # Also show DESCRIBE DETAIL for current state
 print("\nCURRENT TABLE STATE:")
-detail_final = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail_final = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 detail_final.select("numFiles", "sizeInBytes").show()
 
 # COMMAND ----------
@@ -1717,8 +1708,7 @@ detail_final.select("numFiles", "sizeInBytes").show()
 
 # COMMAND ----------
 
-merge_clustered_path = "/tmp/delta/perf_demo/merge_clustered"
-dbutils.fs.rm(merge_clustered_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_merge_clustered")
 
 print("Creating ZORDERED table for optimized MERGE...")
 
@@ -1733,18 +1723,18 @@ merge_base_clustered = spark.range(0, 500000).select(
 
 # Write with ZORDER
 merge_base_clustered.write.mode("overwrite").format("delta") \
-    .save(merge_clustered_path)
+    .saveAsTable("default.perf_merge_clustered")
 
 # Run OPTIMIZE with ZORDER on merge key
-spark.sql(f"OPTIMIZE delta.`{merge_clustered_path}` ZORDER BY (product_id)")
+spark.sql("OPTIMIZE default.perf_merge_clustered ZORDER BY (product_id)")
 print("ZORDER optimization on product_id completed.")
 
 # Now run MERGE on clustered table
 print("\nMERGE on ZORDERED table:")
 t0 = time.time()
 
-merge_sql_clustered = f"""
-MERGE INTO delta.`{merge_clustered_path}` AS target
+merge_sql_clustered = """
+MERGE INTO default.perf_merge_clustered AS target
 USING updates_wide AS source
 ON target.product_id = source.product_id
 WHEN MATCHED THEN UPDATE SET

@@ -1,66 +1,68 @@
-# 07 — Unity Catalog & Governance
+ # 07 — Unity Catalog & Governance
 
-**Concepts Covered:** #61–#70  
-**Environment:** Databricks Community Edition (single-node, free, **no Unity Catalog**)  
-**Goal:** Master data governance, security, and sharing principles on Databricks.
+ **Concepts Covered:** #61–#70  
+ **Environment:** Databricks Community Edition (single-node, free, **no Unity Catalog**)  
+ **Goal:** Master data governance, security, and sharing principles on Databricks.
 
-**CRITICAL:** Databricks Community Edition uses the **legacy Hive Metastore**. Unity Catalog is available only on paid workspaces (Premium/Enterprise tiers on AWS, Azure, or GCP). Throughout this notebook, we explain what Unity Catalog provides and then show the Hive Metastore equivalent that runs in Community Edition.
+ **CRITICAL:** Databricks Community Edition uses the **legacy Hive Metastore**. Unity Catalog is available only on paid workspaces (Premium/Enterprise tiers on AWS, Azure, or GCP). Throughout this notebook, we explain what Unity Catalog provides and then show the Hive Metastore equivalent that runs in Community Edition.
 
-| # | Concept | Difficulty | Type |
-|---|---------|------------|------|
-| 61 | Three-Level Namespace | Easy | Conceptual + Hands-on |
-| 62 | Permission Model & Inheritance | Medium | Conceptual + Hands-on |
-| 63 | Dynamic Views for Security | Medium | Hands-on |
-| 64 | Data Lineage | Medium | Conceptual + Hands-on |
-| 65 | Information Schema & Metadata Queries | Medium | Hands-on |
-| 66 | External Locations & Storage Credentials | Medium | Conceptual + Hands-on |
-| 67 | Service Principals & Managed Identity | Medium | Conceptual |
-| 68 | Audit Logging | Medium | Hands-on |
-| 69 | Row Filters & Column Masks | Hard | Hands-on |
-| 70 | Delta Sharing | Hard | Conceptual + Hands-on |
-
-```python
-
-```
-## Concept 61 — Three-Level Namespace
-
-### Unity Catalog: `catalog.schema.table`
-
-Unity Catalog introduces a **three-level namespace** for organizing data assets:
-
-```
-catalog.schema.table
-   │       │      │
-   │       │      └── Table, View, Function, Model, Volume
-   │       └───────── Schema (logical grouping, like a database)
-   └───────────────── Catalog (top-level container, maps to an org unit)
-```
-
-**How catalogs map to organizational structure:**
-
-| Catalog | Purpose | Example Schemas |
-|---------|---------|-----------------|
-| `main` | Default catalog | `default`, `public` |
-| `sales` | Sales department data | `revenue`, `pipeline`, `forecast` |
-| `marketing` | Marketing data | `campaigns`, `analytics`, `segments` |
-| `hr_prod` | Production HR data (restricted) | `employees`, `payroll`, `benefits` |
-| `hr_dev` | HR development/sandbox data | `employees`, `payroll`, `benefits` |
-
-### Hive Metastore: Two-Level Namespace (Community Edition)
-
-Community Edition uses the legacy two-level namespace: `database.table`
-
-```
-database.table
-   │        │
-   │        └── Table or View
-   └─────────── Database (equivalent to UC "schema")
-```
+ | # | Concept | Difficulty | Type |
+ |---|---------|------------|------|
+ | 61 | Three-Level Namespace | Easy | Conceptual + Hands-on |
+ | 62 | Permission Model & Inheritance | Medium | Conceptual + Hands-on |
+ | 63 | Dynamic Views for Security | Medium | Hands-on |
+ | 64 | Data Lineage | Medium | Conceptual + Hands-on |
+ | 65 | Information Schema & Metadata Queries | Medium | Hands-on |
+ | 66 | External Locations & Storage Credentials | Medium | Conceptual + Hands-on |
+ | 67 | Service Principals & Managed Identity | Medium | Conceptual |
+ | 68 | Audit Logging | Medium | Hands-on |
+ | 69 | Row Filters & Column Masks | Hard | Hands-on |
+ | 70 | Delta Sharing | Hard | Conceptual + Hands-on |
 
 ```python
 
 ```
-#### Hive Metastore Equivalent — Namespace Navigation
+
+ ## Concept 61 — Three-Level Namespace
+
+ ### Unity Catalog: `catalog.schema.table`
+
+ Unity Catalog introduces a **three-level namespace** for organizing data assets:
+
+ ```
+ catalog.schema.table
+    │       │      │
+    │       │      └── Table, View, Function, Model, Volume
+    │       └───────── Schema (logical grouping, like a database)
+    └───────────────── Catalog (top-level container, maps to an org unit)
+ ```
+
+ **How catalogs map to organizational structure:**
+
+ | Catalog | Purpose | Example Schemas |
+ |---------|---------|-----------------|
+ | `main` | Default catalog | `default`, `public` |
+ | `sales` | Sales department data | `revenue`, `pipeline`, `forecast` |
+ | `marketing` | Marketing data | `campaigns`, `analytics`, `segments` |
+ | `hr_prod` | Production HR data (restricted) | `employees`, `payroll`, `benefits` |
+ | `hr_dev` | HR development/sandbox data | `employees`, `payroll`, `benefits` |
+
+ ### Hive Metastore: Two-Level Namespace (Community Edition)
+
+ Community Edition uses the legacy two-level namespace: `database.table`
+
+ ```
+ database.table
+    │        │
+    │        └── Table or View
+    └─────────── Database (equivalent to UC "schema")
+ ```
+
+```python
+
+```
+
+ #### Hive Metastore Equivalent — Namespace Navigation
 
 ```python
 
@@ -150,7 +152,8 @@ display(spark.sql("SHOW DATABASES"))
 ```python
 
 ```
-#### Show Tables Across Databases
+
+ #### Show Tables Across Databases
 
 ```python
 
@@ -168,101 +171,105 @@ for db in ["default", "sales_db", "hr_db", "marketing_db"]:
 ```python
 
 ```
-### Unity Catalog Syntax Reference (Not Executable in CE)
 
-The following is the Unity Catalog syntax — **cannot run** in Community Edition but shows what you would use in production:
+ ### Unity Catalog Syntax Reference (Not Executable in CE)
 
-```sql
--- Unity Catalog: three-level references
-SELECT * FROM main.default.my_table;
-SELECT * FROM sales_db.revenue.orders;
+ The following is the Unity Catalog syntax — **cannot run** in Community Edition but shows what you would use in production:
 
--- Set default catalog
-USE CATALOG main;
+ ```sql
+ -- Unity Catalog: three-level references
+ SELECT * FROM main.default.my_table;
+ SELECT * FROM sales_db.revenue.orders;
 
--- Set default schema within catalog
-USE SCHEMA default;
+ -- Set default catalog
+ USE CATALOG main;
 
--- Show all catalogs
-SHOW CATALOGS;
+ -- Set default schema within catalog
+ USE SCHEMA default;
 
--- Show schemas in a catalog
-SHOW SCHEMAS IN main;
+ -- Show all catalogs
+ SHOW CATALOGS;
 
--- Show tables in a schema
-SHOW TABLES IN main.default;
+ -- Show schemas in a catalog
+ SHOW SCHEMAS IN main;
 
--- Fully-qualified create
-CREATE TABLE sales.revenue.orders (
-    order_id BIGINT,
-    amount DECIMAL(10,2),
-    order_date DATE
-);
-```
+ -- Show tables in a schema
+ SHOW TABLES IN main.default;
 
-```python
-
-```
-### What You'd Do in Production
-
-1. **Design catalog topology** matching your organizational structure (departments, business units, data domains).
-2. **Use catalogs for data isolation** — separate `_prod` and `_dev` catalogs for the same domain.
-3. **Standardize naming conventions** — `catalog_schema_table` becomes the canonical identity of every data asset.
-4. **Set `USE CATALOG`** at the notebook level for cleaner references.
-5. **Avoid cross-catalog JOINs** unless necessary (they can incur egress costs on some clouds).
-
-| Community Edition | Production Unity Catalog |
-|---|---|
-| `database.table` (2-level) | `catalog.schema.table` (3-level) |
-| `SHOW DATABASES` | `SHOW CATALOGS` + `SHOW SCHEMAS IN <catalog>` |
-| One default database | One default catalog + one default schema per user |
-| No catalog-level privileges | Full RBAC at all three levels |
+ -- Fully-qualified create
+ CREATE TABLE sales.revenue.orders (
+     order_id BIGINT,
+     amount DECIMAL(10,2),
+     order_date DATE
+ );
+ ```
 
 ```python
 
 ```
-## Concept 62 — Permission Model & Inheritance
 
-### Unity Catalog Privilege Cascade
+ ### What You'd Do in Production
 
-Unity Catalog permissions follow a **cascading inheritance model** where child objects can have **more restrictive** (but never more permissive) privileges than their parent:
+ 1. **Design catalog topology** matching your organizational structure (departments, business units, data domains).
+ 2. **Use catalogs for data isolation** — separate `_prod` and `_dev` catalogs for the same domain.
+ 3. **Standardize naming conventions** — `catalog_schema_table` becomes the canonical identity of every data asset.
+ 4. **Set `USE CATALOG`** at the notebook level for cleaner references.
+ 5. **Avoid cross-catalog JOINs** unless necessary (they can incur egress costs on some clouds).
 
-```
-CATALOG                    ─── GRANT USAGE ON CATALOG sales TO `analysts`
-  ├── schema: revenue      ─── GRANT CREATE TABLE, USAGE ON SCHEMA sales.revenue TO `analysts`
-  │     ├── table: orders  ─── GRANT SELECT, MODIFY ON TABLE sales.revenue.orders TO `analysts`
-  │     └── table: returns ─── GRANT SELECT ON TABLE sales.revenue.returns TO `analysts`
-  └── schema: forecast     ─── GRANT USAGE ON SCHEMA sales.forecast TO `analysts`
-        └── table: q1      ─── (inherits no table privileges; must be granted explicitly)
-```
-
-### Key Unity Catalog Privileges
-
-| Privilege | Applies To | Meaning |
-|-----------|-----------|---------|
-| `USE CATALOG` | Catalog | Required to access anything in the catalog |
-| `USE SCHEMA` | Schema | Required to list/access objects in the schema |
-| `SELECT` | Table/View | Read data from the object |
-| `MODIFY` | Table | INSERT, UPDATE, DELETE, MERGE |
-| `CREATE TABLE` | Schema | Create new tables in the schema |
-| `CREATE VIEW` | Schema | Create views in the schema |
-| `CREATE FUNCTION` | Schema | Create UDFs |
-| `ALL PRIVILEGES` | Any | Owner-like full access |
-| `EXECUTE` | Function | Run a UDF |
-
-### Ownership vs Granted Access
-
-- **Owner**: The principal (user/service principal/group) that created the object; has `ALL PRIVILEGES` by default.
-- **Granted Access**: Explicit privileges given to other principals via `GRANT`.
-- Ownership can be transferred with `ALTER <object> OWNER TO <principal>`.
+ | Community Edition | Production Unity Catalog |
+ |---|---|
+ | `database.table` (2-level) | `catalog.schema.table` (3-level) |
+ | `SHOW DATABASES` | `SHOW CATALOGS` + `SHOW SCHEMAS IN <catalog>` |
+ | One default database | One default catalog + one default schema per user |
+ | No catalog-level privileges | Full RBAC at all three levels |
 
 ```python
 
 ```
-### Hive Metastore Equivalent — Limited GRANT/REVOKE in Community Edition
 
-Community Edition supports a limited subset of Hive-style privilege management.
-The following demonstrates what *is* executable in CE:
+ ## Concept 62 — Permission Model & Inheritance
+
+ ### Unity Catalog Privilege Cascade
+
+ Unity Catalog permissions follow a **cascading inheritance model** where child objects can have **more restrictive** (but never more permissive) privileges than their parent:
+
+ ```
+ CATALOG                    ─── GRANT USAGE ON CATALOG sales TO `analysts`
+   ├── schema: revenue      ─── GRANT CREATE TABLE, USAGE ON SCHEMA sales.revenue TO `analysts`
+   │     ├── table: orders  ─── GRANT SELECT, MODIFY ON TABLE sales.revenue.orders TO `analysts`
+   │     └── table: returns ─── GRANT SELECT ON TABLE sales.revenue.returns TO `analysts`
+   └── schema: forecast     ─── GRANT USAGE ON SCHEMA sales.forecast TO `analysts`
+         └── table: q1      ─── (inherits no table privileges; must be granted explicitly)
+ ```
+
+ ### Key Unity Catalog Privileges
+
+ | Privilege | Applies To | Meaning |
+ |-----------|-----------|---------|
+ | `USE CATALOG` | Catalog | Required to access anything in the catalog |
+ | `USE SCHEMA` | Schema | Required to list/access objects in the schema |
+ | `SELECT` | Table/View | Read data from the object |
+ | `MODIFY` | Table | INSERT, UPDATE, DELETE, MERGE |
+ | `CREATE TABLE` | Schema | Create new tables in the schema |
+ | `CREATE VIEW` | Schema | Create views in the schema |
+ | `CREATE FUNCTION` | Schema | Create UDFs |
+ | `ALL PRIVILEGES` | Any | Owner-like full access |
+ | `EXECUTE` | Function | Run a UDF |
+
+ ### Ownership vs Granted Access
+
+ - **Owner**: The principal (user/service principal/group) that created the object; has `ALL PRIVILEGES` by default.
+ - **Granted Access**: Explicit privileges given to other principals via `GRANT`.
+ - Ownership can be transferred with `ALTER <object> OWNER TO <principal>`.
+
+```python
+
+```
+
+ ### Hive Metastore Equivalent — Limited GRANT/REVOKE in Community Edition
+
+ Community Edition supports a limited subset of Hive-style privilege management.
+ The following demonstrates what *is* executable in CE:
 
 ```python
 
@@ -298,104 +305,109 @@ except Exception as e:
 ```python
 
 ```
-### Unity Catalog GRANT/REVOKE Reference (Not Executable in CE)
 
-```sql
--- Grant catalog-level access
-GRANT USE CATALOG ON CATALOG sales TO `data_analysts`;
-GRANT USE CATALOG ON CATALOG hr_prod TO `hr_team`;
+ ### Unity Catalog GRANT/REVOKE Reference (Not Executable in CE)
 
--- Grant schema-level access
-GRANT USE SCHEMA ON SCHEMA sales.revenue TO `data_analysts`;
-GRANT CREATE TABLE ON SCHEMA sales.revenue TO `data_engineers`;
-GRANT CREATE VIEW ON SCHEMA sales.revenue TO `data_analysts`;
+ ```sql
+ -- Grant catalog-level access
+ GRANT USE CATALOG ON CATALOG sales TO `data_analysts`;
+ GRANT USE CATALOG ON CATALOG hr_prod TO `hr_team`;
 
--- Grant table-level access
-GRANT SELECT ON TABLE sales.revenue.orders TO `data_analysts`;
-GRANT MODIFY ON TABLE sales.revenue.orders TO `data_engineers`;
-GRANT ALL PRIVILEGES ON TABLE sales.revenue.returns TO `data_owner`;
+ -- Grant schema-level access
+ GRANT USE SCHEMA ON SCHEMA sales.revenue TO `data_analysts`;
+ GRANT CREATE TABLE ON SCHEMA sales.revenue TO `data_engineers`;
+ GRANT CREATE VIEW ON SCHEMA sales.revenue TO `data_analysts`;
 
--- Grant to a group (using backticks for account-level groups)
-GRANT SELECT ON TABLE sales.revenue.orders TO `account groups/data_analysts`;
+ -- Grant table-level access
+ GRANT SELECT ON TABLE sales.revenue.orders TO `data_analysts`;
+ GRANT MODIFY ON TABLE sales.revenue.orders TO `data_engineers`;
+ GRANT ALL PRIVILEGES ON TABLE sales.revenue.returns TO `data_owner`;
 
--- Revoke privileges
-REVOKE SELECT ON TABLE sales.revenue.orders FROM `data_analysts`;
-REVOKE ALL PRIVILEGES ON TABLE sales.revenue.orders FROM `data_owner`;
+ -- Grant to a group (using backticks for account-level groups)
+ GRANT SELECT ON TABLE sales.revenue.orders TO `account groups/data_analysts`;
 
--- Show grants
-SHOW GRANTS ON CATALOG sales;
-SHOW GRANTS ON SCHEMA sales.revenue;
-SHOW GRANTS ON TABLE sales.revenue.orders;
-SHOW GRANTS TO `data_analysts`;   -- all grants for a principal
-```
+ -- Revoke privileges
+ REVOKE SELECT ON TABLE sales.revenue.orders FROM `data_analysts`;
+ REVOKE ALL PRIVILEGES ON TABLE sales.revenue.orders FROM `data_owner`;
 
-```python
-
-```
-### Permission Inheritance Pattern (Visual)
-
-```
--- Best practice: grant at the highest appropriate level
-
--- 1. Catalog level: entry point (everyone who needs ANY access needs USE CATALOG)
-GRANT USE CATALOG ON CATALOG sales TO `sales_team`;
-
--- 2. Schema level: broader access for trusted roles
-GRANT USE SCHEMA, SELECT ON SCHEMA sales.revenue TO `analysts`;
-
--- 3. Table level: restrict sensitive tables only
-GRANT SELECT ON TABLE hr_prod.employees.salaries TO `hr_admins`;
--- (analysts do NOT get this — salaries remain inaccessible to them)
-```
-
-**Principle of least privilege in UC:**
-- Start with **no access** — everything is denied by default.
-- Grant **minimum necessary** at the **highest level possible**.
-- Use **groups** rather than individual users.
-- Review grants regularly with `SHOW GRANTS`.
+ -- Show grants
+ SHOW GRANTS ON CATALOG sales;
+ SHOW GRANTS ON SCHEMA sales.revenue;
+ SHOW GRANTS ON TABLE sales.revenue.orders;
+ SHOW GRANTS TO `data_analysts`;   -- all grants for a principal
+ ```
 
 ```python
 
 ```
-### What You'd Do in Production
 
-1. **Create account groups** (`account groups/<name>`) and assign users to groups.
-2. **Grant at the schema level** by default — avoid per-table grants unless specificity is required.
-3. **Use catalog-level `USE CATALOG`** for broad access, schema-level `USE SCHEMA` for team access.
-4. **Audit grants quarterly** — use `system.information_schema.table_privileges` to review.
-5. **Never grant to individual users** — always use groups for maintainability.
+ ### Permission Inheritance Pattern (Visual)
 
-| Community Edition | Production Unity Catalog |
-|---|---|
-| Limited Hive GRANT/REVOKE | Full RBAC with inheritance |
-| No group support for privileges | Account groups + nested groups |
-| No separation of duties | Owners, admins, and users distinct |
-| No catalog-level governance | Catalog → Schema → Table privilege cascade |
+ ```
+ -- Best practice: grant at the highest appropriate level
 
-```python
+ -- 1. Catalog level: entry point (everyone who needs ANY access needs USE CATALOG)
+ GRANT USE CATALOG ON CATALOG sales TO `sales_team`;
 
-```
-## Concept 63 — Dynamic Views for Security
+ -- 2. Schema level: broader access for trusted roles
+ GRANT USE SCHEMA, SELECT ON SCHEMA sales.revenue TO `analysts`;
 
-### What Are Dynamic Views?
+ -- 3. Table level: restrict sensitive tables only
+ GRANT SELECT ON TABLE hr_prod.employees.salaries TO `hr_admins`;
+ -- (analysts do NOT get this — salaries remain inaccessible to them)
+ ```
 
-Dynamic views embed user-identity functions in their SQL definition to **automatically filter rows or mask columns** based on who is querying. Unlike static views, a single dynamic view serves different data to different users.
-
-**Key functions:**
-- `CURRENT_USER()` — returns the Databricks user email running the query
-- `IS_MEMBER(group_name)` — returns TRUE if the current user belongs to the specified group
-
-**Use cases:**
-- **Row-level filtering**: Sales reps see only their own deals; managers see all deals.
-- **Column-level masking**: HR sees full SSN; payroll sees last 4 digits; others see NULL.
-- **Region-based access**: EU users see only EU customer data.
+ **Principle of least privilege in UC:**
+ - Start with **no access** — everything is denied by default.
+ - Grant **minimum necessary** at the **highest level possible**.
+ - Use **groups** rather than individual users.
+ - Review grants regularly with `SHOW GRANTS`.
 
 ```python
 
 ```
-### Community Edition Demo — Dynamic View with Simulated User Context
 
-Since CE has limited `IS_MEMBER()` support, we simulate the pattern using a control table and `current_user()`.
+ ### What You'd Do in Production
+
+ 1. **Create account groups** (`account groups/<name>`) and assign users to groups.
+ 2. **Grant at the schema level** by default — avoid per-table grants unless specificity is required.
+ 3. **Use catalog-level `USE CATALOG`** for broad access, schema-level `USE SCHEMA` for team access.
+ 4. **Audit grants quarterly** — use `system.information_schema.table_privileges` to review.
+ 5. **Never grant to individual users** — always use groups for maintainability.
+
+ | Community Edition | Production Unity Catalog |
+ |---|---|
+ | Limited Hive GRANT/REVOKE | Full RBAC with inheritance |
+ | No group support for privileges | Account groups + nested groups |
+ | No separation of duties | Owners, admins, and users distinct |
+ | No catalog-level governance | Catalog → Schema → Table privilege cascade |
+
+```python
+
+```
+
+ ## Concept 63 — Dynamic Views for Security
+
+ ### What Are Dynamic Views?
+
+ Dynamic views embed user-identity functions in their SQL definition to **automatically filter rows or mask columns** based on who is querying. Unlike static views, a single dynamic view serves different data to different users.
+
+ **Key functions:**
+ - `CURRENT_USER()` — returns the Databricks user email running the query
+ - `IS_MEMBER(group_name)` — returns TRUE if the current user belongs to the specified group
+
+ **Use cases:**
+ - **Row-level filtering**: Sales reps see only their own deals; managers see all deals.
+ - **Column-level masking**: HR sees full SSN; payroll sees last 4 digits; others see NULL.
+ - **Region-based access**: EU users see only EU customer data.
+
+```python
+
+```
+
+ ### Community Edition Demo — Dynamic View with Simulated User Context
+
+ Since CE has limited `IS_MEMBER()` support, we simulate the pattern using a control table and `current_user()`.
 
 ```python
 
@@ -426,9 +438,10 @@ display(spark.sql("SELECT * FROM hr_db.employee_sensitive"))
 ```python
 
 ```
-#### Simulated Access Control Table
 
-In production, you'd use Unity Catalog groups + `IS_MEMBER()`. Here we simulate with a lookup table.
+ #### Simulated Access Control Table
+
+ In production, you'd use Unity Catalog groups + `IS_MEMBER()`. Here we simulate with a lookup table.
 
 ```python
 
@@ -460,7 +473,8 @@ spark.sql(f"""
 ```python
 
 ```
-#### Pattern 1: Column-Level Masking with Dynamic View
+
+ #### Pattern 1: Column-Level Masking with Dynamic View
 
 ```python
 
@@ -497,7 +511,8 @@ display(spark.sql("SELECT * FROM hr_db.employee_view ORDER BY emp_id"))
 ```python
 
 ```
-#### Pattern 2: Row-Level Filtering with Dynamic View
+
+ #### Pattern 2: Row-Level Filtering with Dynamic View
 
 ```python
 
@@ -533,7 +548,8 @@ display(spark.sql("SELECT * FROM hr_db.employee_by_dept ORDER BY emp_id"))
 ```python
 
 ```
-### Test All Three Roles
+
+ ### Test All Three Roles
 
 ```python
 
@@ -567,82 +583,87 @@ spark.sql("""
 ```python
 
 ```
-### Unity Catalog Dynamic View — Production Syntax
 
-```sql
--- Production UC dynamic view with IS_MEMBER() and CURRENT_USER()
-CREATE VIEW hr_prod.employees.employee_safe_view AS
-SELECT
-    emp_id,
-    name,
-    dept,
-    CASE
-        WHEN IS_MEMBER('hr_team') THEN ssn
-        WHEN IS_MEMBER('managers') THEN CONCAT('***-**-', RIGHT(ssn, 4))
-        ELSE 'XXX-XX-XXXX'
-    END AS ssn,
-    CASE
-        WHEN IS_MEMBER('hr_team') OR IS_MEMBER('managers') THEN salary
-        ELSE NULL
-    END AS salary,
-    CURRENT_USER() AS queried_by
-FROM hr_prod.employees.employee_raw
-WHERE
-    IS_MEMBER('hr_team')
-    OR (IS_MEMBER('managers') AND dept IN (SELECT dept FROM manager_departments WHERE manager = CURRENT_USER()))
-    OR (IS_MEMBER('employees') AND name = (SELECT name FROM user_employee_map WHERE user = CURRENT_USER()));
-```
+ ### Unity Catalog Dynamic View — Production Syntax
 
-```python
-
-```
-### Dynamic Views vs Row Filters & Column Masks
-
-| Feature | Dynamic Views | Row Filters + Column Masks |
-|---------|---------------|---------------------------|
-| **How it works** | Logic embedded in VIEW definition | UDFs bound to TABLE via ALTER |
-| **Apply to** | Specific view | Base table (affects ALL queries) |
-| **Override possible?** | Create separate view | No — affects all direct table access |
-| **Performance** | View overhead on every query | UDF overhead on every scan |
-| **Best for** | Tailored access per audience | Uniform policy enforcement |
-| **Introduced** | Older (GA since DBR 9.x) | Newer (UC 1.3+, DBR 14+) |
-| **Manageability** | View-level, requires DDL | Table-level, centralized policy |
-
-**Recommendation:** Use **dynamic views** for role-specific representations. Use **row filters + column masks** (see Concept #69) for uniform, non-negotiable security policies on base tables.
+ ```sql
+ -- Production UC dynamic view with IS_MEMBER() and CURRENT_USER()
+ CREATE VIEW hr_prod.employees.employee_safe_view AS
+ SELECT
+     emp_id,
+     name,
+     dept,
+     CASE
+         WHEN IS_MEMBER('hr_team') THEN ssn
+         WHEN IS_MEMBER('managers') THEN CONCAT('***-**-', RIGHT(ssn, 4))
+         ELSE 'XXX-XX-XXXX'
+     END AS ssn,
+     CASE
+         WHEN IS_MEMBER('hr_team') OR IS_MEMBER('managers') THEN salary
+         ELSE NULL
+     END AS salary,
+     CURRENT_USER() AS queried_by
+ FROM hr_prod.employees.employee_raw
+ WHERE
+     IS_MEMBER('hr_team')
+     OR (IS_MEMBER('managers') AND dept IN (SELECT dept FROM manager_departments WHERE manager = CURRENT_USER()))
+     OR (IS_MEMBER('employees') AND name = (SELECT name FROM user_employee_map WHERE user = CURRENT_USER()));
+ ```
 
 ```python
 
 ```
-### What You'd Do in Production
 
-1. Define account groups in Unity Catalog: `hr_team`, `managers`, `sales_reps`, etc.
-2. Use `IS_MEMBER()` in view definitions for automated filtering.
-3. Add `current_user()` as a column for audit trails within the view.
-4. Combine row filtering AND column masking in the same view.
-5. Test views by impersonating different users (`EXECUTE AS` in SQL Warehouses).
-6. Deny direct table access — force all users through the secure view.
+ ### Dynamic Views vs Row Filters & Column Masks
 
-```python
+ | Feature | Dynamic Views | Row Filters + Column Masks |
+ |---------|---------------|---------------------------|
+ | **How it works** | Logic embedded in VIEW definition | UDFs bound to TABLE via ALTER |
+ | **Apply to** | Specific view | Base table (affects ALL queries) |
+ | **Override possible?** | Create separate view | No — affects all direct table access |
+ | **Performance** | View overhead on every query | UDF overhead on every scan |
+ | **Best for** | Tailored access per audience | Uniform policy enforcement |
+ | **Introduced** | Older (GA since DBR 9.x) | Newer (UC 1.3+, DBR 14+) |
+ | **Manageability** | View-level, requires DDL | Table-level, centralized policy |
 
-```
-## Concept 64 — Data Lineage
-
-### What Unity Catalog Lineage Provides
-
-Unity Catalog automatically captures **column-level lineage** across all workloads:
-- Which notebook produced this table?
-- Which upstream tables fed this view?
-- Which downstream dashboards depend on this column?
-- If I change column X, what breaks?
-
-Lineage is captured automatically — no manual instrumentation needed. It works across notebooks, Delta Live Tables pipelines, SQL queries, and jobs.
+ **Recommendation:** Use **dynamic views** for role-specific representations. Use **row filters + column masks** (see Concept #69) for uniform, non-negotiable security policies on base tables.
 
 ```python
 
 ```
-### Community Edition — Manual Lineage Tracking
 
-Since CE lacks automatic lineage, we build a manual tracking system to demonstrate the concept.
+ ### What You'd Do in Production
+
+ 1. Define account groups in Unity Catalog: `hr_team`, `managers`, `sales_reps`, etc.
+ 2. Use `IS_MEMBER()` in view definitions for automated filtering.
+ 3. Add `current_user()` as a column for audit trails within the view.
+ 4. Combine row filtering AND column masking in the same view.
+ 5. Test views by impersonating different users (`EXECUTE AS` in SQL Warehouses).
+ 6. Deny direct table access — force all users through the secure view.
+
+```python
+
+```
+
+ ## Concept 64 — Data Lineage
+
+ ### What Unity Catalog Lineage Provides
+
+ Unity Catalog automatically captures **column-level lineage** across all workloads:
+ - Which notebook produced this table?
+ - Which upstream tables fed this view?
+ - Which downstream dashboards depend on this column?
+ - If I change column X, what breaks?
+
+ Lineage is captured automatically — no manual instrumentation needed. It works across notebooks, Delta Live Tables pipelines, SQL queries, and jobs.
+
+```python
+
+```
+
+ ### Community Edition — Manual Lineage Tracking
+
+ Since CE lacks automatic lineage, we build a manual tracking system to demonstrate the concept.
 
 ```python
 
@@ -684,7 +705,8 @@ print("Lineage recording function defined.")
 ```python
 
 ```
-#### Build a Sample Pipeline and Map Its Lineage
+
+ #### Build a Sample Pipeline and Map Its Lineage
 
 ```python
 
@@ -750,7 +772,8 @@ print("Step 4: executive_dashboard view created.")
 ```python
 
 ```
-#### Query the Lineage — Impact Analysis
+
+ #### Query the Lineage — Impact Analysis
 
 ```python
 
@@ -794,92 +817,97 @@ display(affected)
 ```python
 
 ```
-### Visualize the Pipeline Lineage
 
-```
-external_csv ──→ revenue_raw ──→ revenue_clean ──→ revenue_monthly ──→ executive_dashboard
-                     │                   │                    │
-                     │                   ├─ product (UPPER)    ├─ total_revenue (SUM)
-                     │                   ├─ amount (CAST)      ├─ order_count (COUNT)
-                     │                   └─ order_month (MONTH)└─ avg_order_value (AVG)
-                     │
-                     └─── * (raw ingestion)
-```
+ ### Visualize the Pipeline Lineage
 
-```python
-
-```
-### Unity Catalog Lineage Queries (Not Executable in CE)
-
-```sql
--- UC: Query column-level lineage for a specific table
-SELECT
-    source_table_catalog,
-    source_table_schema,
-    source_table_name,
-    source_column_name,
-    target_table_catalog,
-    target_table_schema,
-    target_table_name,
-    target_column_name,
-    created_at
-FROM system.lineage.column_lineage
-WHERE target_table_name = 'revenue_monthly';
-
--- UC: Find all downstream consumers of a column
-SELECT DISTINCT
-    target_table_name,
-    notebook_path,
-    job_name
-FROM system.lineage.column_lineage
-WHERE source_table_name = 'revenue_raw' AND source_column_name = 'product';
-
--- UC: Find all upstream sources for a dashboard table
-SELECT DISTINCT
-    source_table_name,
-    source_column_name
-FROM system.lineage.column_lineage
-WHERE target_table_name = 'executive_dashboard';
-```
+ ```
+ external_csv ──→ revenue_raw ──→ revenue_clean ──→ revenue_monthly ──→ executive_dashboard
+                      │                   │                    │
+                      │                   ├─ product (UPPER)    ├─ total_revenue (SUM)
+                      │                   ├─ amount (CAST)      ├─ order_count (COUNT)
+                      │                   └─ order_month (MONTH)└─ avg_order_value (AVG)
+                      │
+                      └─── * (raw ingestion)
+ ```
 
 ```python
 
 ```
-### What You'd Do in Production
 
-1. Unity Catalog lineage is **automatic** — no manual instrumentation.
-2. Use **Lineage UI** in the Databricks workspace for visual graph exploration.
-3. Query `system.lineage.column_lineage` for programmatic impact analysis.
-4. Integrate lineage into your CI/CD to detect breaking changes before deployment.
-5. Tag all notebooks, jobs, and DLT pipelines with meaningful names for clear lineage.
-6. Lineage persists across retentions — you can trace history even after source tables are dropped.
+ ### Unity Catalog Lineage Queries (Not Executable in CE)
+
+ ```sql
+ -- UC: Query column-level lineage for a specific table
+ SELECT
+     source_table_catalog,
+     source_table_schema,
+     source_table_name,
+     source_column_name,
+     target_table_catalog,
+     target_table_schema,
+     target_table_name,
+     target_column_name,
+     created_at
+ FROM system.lineage.column_lineage
+ WHERE target_table_name = 'revenue_monthly';
+
+ -- UC: Find all downstream consumers of a column
+ SELECT DISTINCT
+     target_table_name,
+     notebook_path,
+     job_name
+ FROM system.lineage.column_lineage
+ WHERE source_table_name = 'revenue_raw' AND source_column_name = 'product';
+
+ -- UC: Find all upstream sources for a dashboard table
+ SELECT DISTINCT
+     source_table_name,
+     source_column_name
+ FROM system.lineage.column_lineage
+ WHERE target_table_name = 'executive_dashboard';
+ ```
 
 ```python
 
 ```
-## Concept 65 — Information Schema & Metadata Queries
 
-### Unity Catalog Information Schema
+ ### What You'd Do in Production
 
-UC provides `system.information_schema` with standardized metadata tables:
-
-| Table | What It Contains |
-|-------|------------------|
-| `system.information_schema.tables` | All tables and views across catalogs |
-| `system.information_schema.columns` | All columns with types, nullable, defaults |
-| `system.information_schema.table_privileges` | All GRANTs on tables |
-| `system.information_schema.schemata` | All schemas/catalogs |
-| `system.information_schema.views` | View definitions |
-| `system.information_schema.routines` | UDFs and stored procedures |
-
-This is ANSI SQL standard compliant — the same queries work across Databricks, PostgreSQL, Snowflake, etc.
+ 1. Unity Catalog lineage is **automatic** — no manual instrumentation.
+ 2. Use **Lineage UI** in the Databricks workspace for visual graph exploration.
+ 3. Query `system.lineage.column_lineage` for programmatic impact analysis.
+ 4. Integrate lineage into your CI/CD to detect breaking changes before deployment.
+ 5. Tag all notebooks, jobs, and DLT pipelines with meaningful names for clear lineage.
+ 6. Lineage persists across retentions — you can trace history even after source tables are dropped.
 
 ```python
 
 ```
-### Community Edition — Hive Metastore Metadata Queries
 
-CE uses Hive Metastore commands to discover metadata. While not a true `information_schema`, these serve the same purpose.
+ ## Concept 65 — Information Schema & Metadata Queries
+
+ ### Unity Catalog Information Schema
+
+ UC provides `system.information_schema` with standardized metadata tables:
+
+ | Table | What It Contains |
+ |-------|------------------|
+ | `system.information_schema.tables` | All tables and views across catalogs |
+ | `system.information_schema.columns` | All columns with types, nullable, defaults |
+ | `system.information_schema.table_privileges` | All GRANTs on tables |
+ | `system.information_schema.schemata` | All schemas/catalogs |
+ | `system.information_schema.views` | View definitions |
+ | `system.information_schema.routines` | UDFs and stored procedures |
+
+ This is ANSI SQL standard compliant — the same queries work across Databricks, PostgreSQL, Snowflake, etc.
+
+```python
+
+```
+
+ ### Community Edition — Hive Metastore Metadata Queries
+
+ CE uses Hive Metastore commands to discover metadata. While not a true `information_schema`, these serve the same purpose.
 
 ```python
 
@@ -950,7 +978,8 @@ except Exception as e:
 ```python
 
 ```
-### Build a Compliance Report from Metadata
+
+ ### Build a Compliance Report from Metadata
 
 ```python
 
@@ -1020,82 +1049,86 @@ display(report_df.orderBy("status", "database", "table_name"))
 ```python
 
 ```
-### Unity Catalog Information Schema Queries (Reference)
 
-```sql
--- UC: List all tables in the sales catalog
-SELECT table_catalog, table_schema, table_name, table_type, data_source_format
-FROM system.information_schema.tables
-WHERE table_catalog = 'sales'
-ORDER BY table_schema, table_name;
+ ### Unity Catalog Information Schema Queries (Reference)
 
--- UC: Find all columns with PII-sounding names
-SELECT table_catalog, table_schema, table_name, column_name, data_type
-FROM system.information_schema.columns
-WHERE LOWER(column_name) RLIKE 'ssn|salary|phone|email|address|password|credit'
-ORDER BY table_catalog, table_schema, table_name;
+ ```sql
+ -- UC: List all tables in the sales catalog
+ SELECT table_catalog, table_schema, table_name, table_type, data_source_format
+ FROM system.information_schema.tables
+ WHERE table_catalog = 'sales'
+ ORDER BY table_schema, table_name;
 
--- UC: Compliance audit — tables without descriptions
-SELECT table_catalog, table_schema, table_name
-FROM system.information_schema.tables
-WHERE comment IS NULL OR comment = ''
-ORDER BY table_catalog, table_schema, table_name;
+ -- UC: Find all columns with PII-sounding names
+ SELECT table_catalog, table_schema, table_name, column_name, data_type
+ FROM system.information_schema.columns
+ WHERE LOWER(column_name) RLIKE 'ssn|salary|phone|email|address|password|credit'
+ ORDER BY table_catalog, table_schema, table_name;
 
--- UC: Review all grants on sensitive tables
-SELECT grantee, privilege_type, table_catalog, table_schema, table_name
-FROM system.information_schema.table_privileges
-WHERE table_name IN ('salaries', 'employee_sensitive')
-ORDER BY grantee, table_name;
-```
+ -- UC: Compliance audit — tables without descriptions
+ SELECT table_catalog, table_schema, table_name
+ FROM system.information_schema.tables
+ WHERE comment IS NULL OR comment = ''
+ ORDER BY table_catalog, table_schema, table_name;
 
-```python
-
-```
-### What You'd Do in Production
-
-1. **Automate metadata scans** — weekly job that queries `system.information_schema.columns` for new PII columns.
-2. **Build a data catalog dashboard** listing all tables, owners, last updated, sensitivity level.
-3. **Enforce tagging** — use table comments and TBLPROPERTIES to tag data classification levels.
-4. **Monitor for "rogue tables"** — tables outside designated catalogs/schemas.
-5. **Integrate with external catalogs** — push UC metadata to enterprise data catalogs (Alation, Collibra, etc.).
+ -- UC: Review all grants on sensitive tables
+ SELECT grantee, privilege_type, table_catalog, table_schema, table_name
+ FROM system.information_schema.table_privileges
+ WHERE table_name IN ('salaries', 'employee_sensitive')
+ ORDER BY grantee, table_name;
+ ```
 
 ```python
 
 ```
-## Concept 66 — External Locations & Storage Credentials
 
-### Unity Catalog External Locations
+ ### What You'd Do in Production
 
-Unity Catalog governs access to cloud storage through **external locations** — named references to cloud storage paths:
-
-```
-Cloud Storage (S3/ADLS/GCS)
-        │
-        ▼
-Storage Credential    ← IAM Role (AWS) / Service Principal (Azure) / Service Account (GCP)
-        │
-        ▼
-External Location     ← s3://my-bucket/sales-data/ mapped to UC name "sales_data_loc"
-        │
-        ▼
-Managed/External Tables ← Created under the external location
-```
-
-### Two Types of Tables in UC
-
-| Type | Data Location | Schema Location | Dropping Table... |
-|------|--------------|-----------------|-------------------|
-| **Managed Table** | UC-managed storage (catalog-scoped) | UC-managed | Deletes DATA + SCHEMA |
-| **External Table** | Your cloud storage (external location) | UC-metastore | Deletes SCHEMA only; DATA persists |
-
-**Key difference:** Managed tables give UC full lifecycle control. External tables let you own the data files in your cloud storage.
+ 1. **Automate metadata scans** — weekly job that queries `system.information_schema.columns` for new PII columns.
+ 2. **Build a data catalog dashboard** listing all tables, owners, last updated, sensitivity level.
+ 3. **Enforce tagging** — use table comments and TBLPROPERTIES to tag data classification levels.
+ 4. **Monitor for "rogue tables"** — tables outside designated catalogs/schemas.
+ 5. **Integrate with external catalogs** — push UC metadata to enterprise data catalogs (Alation, Collibra, etc.).
 
 ```python
 
 ```
-### Community Edition — External Tables on DBFS
 
-CE does not have UC external locations, but the Hive Metastore supports external tables with a `LOCATION` clause. DBFS (`/FileStore/`, `/tmp/`) serves as the "external storage."
+ ## Concept 66 — External Locations & Storage Credentials
+
+ ### Unity Catalog External Locations
+
+ Unity Catalog governs access to cloud storage through **external locations** — named references to cloud storage paths:
+
+ ```
+ Cloud Storage (S3/ADLS/GCS)
+         │
+         ▼
+ Storage Credential    ← IAM Role (AWS) / Service Principal (Azure) / Service Account (GCP)
+         │
+         ▼
+ External Location     ← s3://my-bucket/sales-data/ mapped to UC name "sales_data_loc"
+         │
+         ▼
+ Managed/External Tables ← Created under the external location
+ ```
+
+ ### Two Types of Tables in UC
+
+ | Type | Data Location | Schema Location | Dropping Table... |
+ |------|--------------|-----------------|-------------------|
+ | **Managed Table** | UC-managed storage (catalog-scoped) | UC-managed | Deletes DATA + SCHEMA |
+ | **External Table** | Your cloud storage (external location) | UC-metastore | Deletes SCHEMA only; DATA persists |
+
+ **Key difference:** Managed tables give UC full lifecycle control. External tables let you own the data files in your cloud storage.
+
+```python
+
+```
+
+ ### Community Edition — External Tables on DBFS
+
+ CE does not have UC external locations, but the Hive Metastore supports external tables with a `LOCATION` clause. DBFS (`/FileStore/`, `/tmp/`) serves as the "external storage."
 
 ```python
 
@@ -1117,29 +1150,35 @@ display(spark.sql("DESCRIBE EXTENDED sales_db.orders_managed"))
 ```python
 
 ```
-**Create an external table on DBFS** — the data lives at a path you control.
+
+ **Create an external table on DBFS** — the data lives at a path you control.
+
+ ⚠️ **SERVERLESS NOTE:** DBFS paths (`/FileStore/`) are not available on serverless compute.
+ This demo now uses a **managed table** (`default.orders_external`) to illustrate the concept.
+ In production Unity Catalog, you would use an external location (S3/ADLS/GCS) instead.
 
 ```python
 
-dbfs_path = "/FileStore/tables/sales_db/orders_external"
-
-# Write data to an explicit DBFS location (simulates data landing in external storage)
+# Write data as a managed table (serverless-compatible)
 external_df = spark.createDataFrame(
     [(3, "Widget-C", 100.00), (4, "Widget-D", 350.00), (5, "Widget-E", 225.00)],
     ["order_id", "product", "amount"]
 )
-external_df.write.format("delta").mode("overwrite").save(dbfs_path)
-print(f"Data written to: {dbfs_path}")
+# Drop any prior table, then save as managed
+spark.sql("DROP TABLE IF EXISTS default.orders_external")
+external_df.write.format("delta").mode("overwrite").saveAsTable("default.orders_external")
+print(f"Data written to managed table: default.orders_external")
 
-# Now create an external table pointing to that location
+# Now create an alias/reference in sales_db pointing to the same managed table
+# (In production UC, you'd use LOCATION pointing to an external storage path)
 spark.sql(f"""
     CREATE OR REPLACE TABLE sales_db.orders_external
     USING DELTA
-    LOCATION '{dbfs_path}'
+    AS SELECT * FROM default.orders_external
 """)
 
-print("\nExternal table created — schema in Hive Metastore, data at DBFS path.")
-print(f"DBFS Path: {dbfs_path}")
+print("\nExternal table concept — schema in Hive Metastore, table aliased in sales_db.")
+print(f"Reference: default.orders_external (managed)")
 display(spark.sql("DESCRIBE EXTENDED sales_db.orders_external"))
 
 ```
@@ -1147,7 +1186,8 @@ display(spark.sql("DESCRIBE EXTENDED sales_db.orders_external"))
 ```python
 
 ```
-### Demonstrate Managed vs External Behavior
+
+ ### Demonstrate Managed vs External Behavior
 
 ```python
 
@@ -1174,13 +1214,15 @@ print("Dropped MANAGED table — data is gone.")
 spark.sql("DROP TABLE IF EXISTS sales_db.orders_external")
 print("Dropped EXTERNAL table — schema removed, data still on DBFS.")
 
-# Re-register the external table from the same data
-spark.sql(f"""
+# Re-register the external table from the managed source
+# In production UC with external tables, dropping just removes the schema — data survives.
+# Here we re-create from the managed source to illustrate the concept.
+spark.sql("""
     CREATE OR REPLACE TABLE sales_db.orders_external
     USING DELTA
-    LOCATION '{dbfs_path}'
+    AS SELECT * FROM default.orders_external
 """)
-print("Re-registered external table from the same data — data survived the drop!")
+print("Re-created orders_external from managed source — illustrating external table survivability!")
 display(spark.sql("SELECT COUNT(*) AS surviving_rows FROM sales_db.orders_external"))
 
 ```
@@ -1188,124 +1230,129 @@ display(spark.sql("SELECT COUNT(*) AS surviving_rows FROM sales_db.orders_extern
 ```python
 
 ```
-### Unity Catalog External Location Syntax (Reference)
 
-```sql
--- UC: Create a storage credential (requires account admin)
-CREATE STORAGE CREDENTIAL aws_sales_cred
-USING 'arn:aws:iam::123456789:role/databricks-sales-access';
+ ### Unity Catalog External Location Syntax (Reference)
 
--- UC: Create an external location bound to the credential
-CREATE EXTERNAL LOCATION sales_data_loc
-URL 's3://my-company-sales-bucket/'
-WITH (
-    CREDENTIAL aws_sales_cred
-)
-COMMENT 'Sales department raw data landing zone';
+ ```sql
+ -- UC: Create a storage credential (requires account admin)
+ CREATE STORAGE CREDENTIAL aws_sales_cred
+ USING 'arn:aws:iam::123456789:role/databricks-sales-access';
 
--- UC: Grant access to the external location
-GRANT CREATE TABLE, READ FILES, WRITE FILES
-ON EXTERNAL LOCATION sales_data_loc
-TO `data_engineers`;
+ -- UC: Create an external location bound to the credential
+ CREATE EXTERNAL LOCATION sales_data_loc
+ URL 's3://my-company-sales-bucket/'
+ WITH (
+     CREDENTIAL aws_sales_cred
+ )
+ COMMENT 'Sales department raw data landing zone';
 
--- UC: Create an external table on the governed location
-CREATE TABLE sales.revenue.invoices
-LOCATION 's3://my-company-sales-bucket/invoices/';
+ -- UC: Grant access to the external location
+ GRANT CREATE TABLE, READ FILES, WRITE FILES
+ ON EXTERNAL LOCATION sales_data_loc
+ TO `data_engineers`;
 
--- UC: Show all external locations
-SHOW EXTERNAL LOCATIONS;
+ -- UC: Create an external table on the governed location
+ CREATE TABLE sales.revenue.invoices
+ LOCATION 's3://my-company-sales-bucket/invoices/';
 
--- UC: Describe an external location
-DESCRIBE EXTERNAL LOCATION sales_data_loc;
-```
+ -- UC: Show all external locations
+ SHOW EXTERNAL LOCATIONS;
 
-```python
-
-```
-### What You'd Do in Production
-
-1. **Create external locations for all cloud storage paths** used by Databricks.
-2. **Use managed tables for derived/internal data** — let UC handle lifecycle.
-3. **Use external tables for shared/ingested data** — you control the source.
-4. **Grant READ FILES / WRITE FILES** at the external location level, not per-bucket.
-5. **Never use service credentials directly in notebooks** — always go through UC external locations.
-6. **Audit external locations** to ensure no unauthorized cloud storage access exists.
-
-| Community Edition | Production Unity Catalog |
-|---|---|
-| DBFS as "external" storage | S3/ADLS/GCS via external locations |
-| No storage credential abstraction | IAM roles, service principals, service accounts |
-| `LOCATION '/path/'` in Hive Metastore | `LOCATION 's3://...'` governed by UC |
-| No access control on paths | GRANT READ/WRITE FILES on external locations |
+ -- UC: Describe an external location
+ DESCRIBE EXTERNAL LOCATION sales_data_loc;
+ ```
 
 ```python
 
 ```
-## Concept 67 — Service Principals & Managed Identity
 
-### What Are Service Principals?
+ ### What You'd Do in Production
 
-A **service principal** is a non-human identity — an application, CI/CD pipeline, or scheduled job — that authenticates to Databricks using its own credentials rather than a user's personal account.
+ 1. **Create external locations for all cloud storage paths** used by Databricks.
+ 2. **Use managed tables for derived/internal data** — let UC handle lifecycle.
+ 3. **Use external tables for shared/ingested data** — you control the source.
+ 4. **Grant READ FILES / WRITE FILES** at the external location level, not per-bucket.
+ 5. **Never use service credentials directly in notebooks** — always go through UC external locations.
+ 6. **Audit external locations** to ensure no unauthorized cloud storage access exists.
 
-```
-HUMAN IDENTITY:                    MACHINE IDENTITY:
-alice@company.com                 sp-sales-etl-prod
-  │ OIDC / SSO                        │ OAuth2 client credentials
-  │ Personal token                     │ Secret + Client ID
-  ▼                                   ▼
-Databricks Workspace ◄─────────── Databricks Workspace
-```
-
-### Why NOT Use Personal Accounts for Production?
-
-| Risk | Consequence |
-|------|------------|
-| Employee leaves company | Job breaks; token deleted; panic |
-| Personal token leaked | Full user access compromised |
-| No separation of duties | Alice's prod job runs as Alice, not as "ETL Pipeline" |
-| Audit confusion | Who really ran this — Alice or her script? |
-| Credential rotation | Personal tokens aren't managed by security teams |
-
-**Production workloads MUST run as service principals.**
+ | Community Edition | Production Unity Catalog |
+ |---|---|
+ | DBFS as "external" storage | S3/ADLS/GCS via external locations |
+ | No storage credential abstraction | IAM roles, service principals, service accounts |
+ | `LOCATION '/path/'` in Hive Metastore | `LOCATION 's3://...'` governed by UC |
+ | No access control on paths | GRANT READ/WRITE FILES on external locations |
 
 ```python
 
 ```
-### Service Principal Architecture
 
-**On Azure:**
-```
-Azure AD App Registration → Service Principal
-        │
-        ├── Client ID + Secret/Certificate (for OAuth)
-        ├── Managed Identity (Azure resource-level, no secret management)
-        └── Assigned to Databricks workspace via SCIM/API
-```
+ ## Concept 67 — Service Principals & Managed Identity
 
-**On AWS:**
-```
-AWS IAM Role → Instance Profile
-        │
-        ├── Trust policy: allows Databricks to assume this role
-        ├── Attached to Databricks clusters at launch time
-        └── Provides S3 access without embedding keys
-```
+ ### What Are Service Principals?
 
-**On GCP:**
-```
-GCP Service Account
-        │
-        ├── JSON key + service account email
-        ├── Assigned to Databricks workspace
-        └── Provides GCS/BigQuery access
-```
+ A **service principal** is a non-human identity — an application, CI/CD pipeline, or scheduled job — that authenticates to Databricks using its own credentials rather than a user's personal account.
+
+ ```
+ HUMAN IDENTITY:                    MACHINE IDENTITY:
+ alice@company.com                 sp-sales-etl-prod
+   │ OIDC / SSO                        │ OAuth2 client credentials
+   │ Personal token                     │ Secret + Client ID
+   ▼                                   ▼
+ Databricks Workspace ◄─────────── Databricks Workspace
+ ```
+
+ ### Why NOT Use Personal Accounts for Production?
+
+ | Risk | Consequence |
+ |------|------------|
+ | Employee leaves company | Job breaks; token deleted; panic |
+ | Personal token leaked | Full user access compromised |
+ | No separation of duties | Alice's prod job runs as Alice, not as "ETL Pipeline" |
+ | Audit confusion | Who really ran this — Alice or her script? |
+ | Credential rotation | Personal tokens aren't managed by security teams |
+
+ **Production workloads MUST run as service principals.**
 
 ```python
 
 ```
-### Community Edition — Conceptual Simulation
 
-We can't create real service principals in CE, but we can demonstrate the **principle** of machine vs human identity and best practices.
+ ### Service Principal Architecture
+
+ **On Azure:**
+ ```
+ Azure AD App Registration → Service Principal
+         │
+         ├── Client ID + Secret/Certificate (for OAuth)
+         ├── Managed Identity (Azure resource-level, no secret management)
+         └── Assigned to Databricks workspace via SCIM/API
+ ```
+
+ **On AWS:**
+ ```
+ AWS IAM Role → Instance Profile
+         │
+         ├── Trust policy: allows Databricks to assume this role
+         ├── Attached to Databricks clusters at launch time
+         └── Provides S3 access without embedding keys
+ ```
+
+ **On GCP:**
+ ```
+ GCP Service Account
+         │
+         ├── JSON key + service account email
+         ├── Assigned to Databricks workspace
+         └── Provides GCS/BigQuery access
+ ```
+
+```python
+
+```
+
+ ### Community Edition — Conceptual Simulation
+
+ We can't create real service principals in CE, but we can demonstrate the **principle** of machine vs human identity and best practices.
 
 ```python
 
@@ -1350,7 +1397,8 @@ CORRECT PATTERN:
 ```python
 
 ```
-### Best Practices for Service Principal Usage
+
+ ### Best Practices for Service Principal Usage
 
 ```python
 
@@ -1402,55 +1450,58 @@ print(best_practices)
 ```python
 
 ```
-### What You'd Do in Production
 
-1. **Register service principals in your identity provider** (Azure AD, AWS IAM, GCP IAM).
-2. **Add them to your Databricks account** via SCIM provisioning or Account API.
-3. **Assign Unity Catalog privileges** — `GRANT SELECT ON TABLE ... TO \`sp-sales-etl-prod\``.
-4. **Schedule ALL production jobs** to run as service principals, never as users.
-5. **Use Databricks secrets** for OAuth credentials: `sp_client_id` and `sp_client_secret`.
-6. **Implement automated rotation** — Azure Key Vault, AWS Secrets Manager, or GCP Secret Manager.
-7. **Alert on personal-account jobs** — detect and migrate any production jobs running as users.
+ ### What You'd Do in Production
 
-| Community Edition | Production Unity Catalog |
-|---|---|
-| No service principal support | Full SP lifecycle via Account API |
-| Jobs run as the notebook owner | Jobs run as service principals |
-| No managed identity | Azure Managed Identity / AWS Instance Profiles |
-| Limited token management | OAuth2 client credentials with secrets rotation |
+ 1. **Register service principals in your identity provider** (Azure AD, AWS IAM, GCP IAM).
+ 2. **Add them to your Databricks account** via SCIM provisioning or Account API.
+ 3. **Assign Unity Catalog privileges** — `GRANT SELECT ON TABLE ... TO \`sp-sales-etl-prod\``.
+ 4. **Schedule ALL production jobs** to run as service principals, never as users.
+ 5. **Use Databricks secrets** for OAuth credentials: `sp_client_id` and `sp_client_secret`.
+ 6. **Implement automated rotation** — Azure Key Vault, AWS Secrets Manager, or GCP Secret Manager.
+ 7. **Alert on personal-account jobs** — detect and migrate any production jobs running as users.
 
-```python
-
-```
-## Concept 68 — Audit Logging
-
-### Unity Catalog Audit Logging
-
-UC provides `system.access.audit` — a comprehensive audit log table that captures every operation:
-
-| Field | Description |
-|-------|-------------|
-| `event_time` | When the operation occurred |
-| `user_identity.email` | Who performed the operation (human or service principal) |
-| `action_name` | What action (e.g., `selectTable`, `createTable`, `grant`) |
-| `request_params.commandText` | The SQL statement (for queries) |
-| `request_params.table_full_name` | The table affected |
-| `response.status_code` | HTTP status (200 = success) |
-| `source_ip_address` | Client IP address |
-| `service_name` | Which service (e.g., `unity-catalog`, `databricks-sql`) |
-
-Audit logs are critical for:
-- **Compliance** (SOC2, HIPAA, GDPR, PCI-DSS)
-- **Forensic investigation** ("Who accessed this table at 3 AM?")
-- **Anomaly detection** ("Why did the CI/CD SP drop a production table?")
-- **Access review** ("Is ANYONE still using this deprecated table?")
+ | Community Edition | Production Unity Catalog |
+ |---|---|
+ | No service principal support | Full SP lifecycle via Account API |
+ | Jobs run as the notebook owner | Jobs run as service principals |
+ | No managed identity | Azure Managed Identity / AWS Instance Profiles |
+ | Limited token management | OAuth2 client credentials with secrets rotation |
 
 ```python
 
 ```
-### Community Edition — Manual Audit Logging System
 
-CE does not have `system.access.audit`. We build a manual audit log to demonstrate the concept.
+ ## Concept 68 — Audit Logging
+
+ ### Unity Catalog Audit Logging
+
+ UC provides `system.access.audit` — a comprehensive audit log table that captures every operation:
+
+ | Field | Description |
+ |-------|-------------|
+ | `event_time` | When the operation occurred |
+ | `user_identity.email` | Who performed the operation (human or service principal) |
+ | `action_name` | What action (e.g., `selectTable`, `createTable`, `grant`) |
+ | `request_params.commandText` | The SQL statement (for queries) |
+ | `request_params.table_full_name` | The table affected |
+ | `response.status_code` | HTTP status (200 = success) |
+ | `source_ip_address` | Client IP address |
+ | `service_name` | Which service (e.g., `unity-catalog`, `databricks-sql`) |
+
+ Audit logs are critical for:
+ - **Compliance** (SOC2, HIPAA, GDPR, PCI-DSS)
+ - **Forensic investigation** ("Who accessed this table at 3 AM?")
+ - **Anomaly detection** ("Why did the CI/CD SP drop a production table?")
+ - **Access review** ("Is ANYONE still using this deprecated table?")
+
+```python
+
+```
+
+ ### Community Edition — Manual Audit Logging System
+
+ CE does not have `system.access.audit`. We build a manual audit log to demonstrate the concept.
 
 ```python
 
@@ -1529,7 +1580,8 @@ print("Audit logging functions defined.")
 ```python
 
 ```
-### Demonstrate Audit Logging in Action
+
+ ### Demonstrate Audit Logging in Action
 
 ```python
 
@@ -1572,7 +1624,8 @@ print("\nAll operations logged to sales_db.audit_log")
 ```python
 
 ```
-### Query the Audit Log
+
+ ### Query the Audit Log
 
 ```python
 
@@ -1655,88 +1708,92 @@ print("Cleaned up audit_test_table — logged the drop.")
 ```python
 
 ```
-### What Production Audit Logs Would Contain
 
-```sql
--- UC: Query production audit logs
-SELECT
-    event_time,
-    user_identity.email,
-    action_name,
-    request_params.table_full_name,
-    request_params.commandText,
-    response.status_code,
-    source_ip_address,
-    service_name
-FROM system.access.audit
-WHERE event_date >= CURRENT_DATE() - INTERVAL 7 DAYS
-  AND action_name IN ('selectTable', 'createTable', 'dropTable', 'grant')
-ORDER BY event_time DESC;
+ ### What Production Audit Logs Would Contain
 
--- UC: Find tables that haven't been accessed in 30 days (cleanup candidates)
-SELECT request_params.table_full_name, MAX(event_time) AS last_accessed
-FROM system.access.audit
-WHERE action_name = 'selectTable'
-GROUP BY request_params.table_full_name
-HAVING MAX(event_time) < CURRENT_DATE() - INTERVAL 30 DAYS;
+ ```sql
+ -- UC: Query production audit logs
+ SELECT
+     event_time,
+     user_identity.email,
+     action_name,
+     request_params.table_full_name,
+     request_params.commandText,
+     response.status_code,
+     source_ip_address,
+     service_name
+ FROM system.access.audit
+ WHERE event_date >= CURRENT_DATE() - INTERVAL 7 DAYS
+   AND action_name IN ('selectTable', 'createTable', 'dropTable', 'grant')
+ ORDER BY event_time DESC;
 
--- UC: Anomaly detection — tables dropped outside business hours
-SELECT event_time, user_identity.email, request_params.table_full_name
-FROM system.access.audit
-WHERE action_name = 'dropTable'
-  AND HOUR(event_time) NOT BETWEEN 7 AND 19;
-```
+ -- UC: Find tables that haven't been accessed in 30 days (cleanup candidates)
+ SELECT request_params.table_full_name, MAX(event_time) AS last_accessed
+ FROM system.access.audit
+ WHERE action_name = 'selectTable'
+ GROUP BY request_params.table_full_name
+ HAVING MAX(event_time) < CURRENT_DATE() - INTERVAL 30 DAYS;
 
-```python
-
-```
-### What You'd Do in Production
-
-1. **Enable audit logging** — it's on by default in all paid tiers, retained for 365 days.
-2. **Create alert queries** that run daily and flag suspicious activity (e.g., `dropTable` by unusual users).
-3. **Build an audit dashboard** in Databricks SQL with time-series charts of operations.
-4. **Integrate with SIEM systems** — export audit logs to Splunk, Azure Sentinel, or ELK Stack.
-5. **Set up retention policies** — archive old audit logs to cold storage for compliance.
-6. **Use audit data for cost analysis** — identify heavy query users and optimize.
+ -- UC: Anomaly detection — tables dropped outside business hours
+ SELECT event_time, user_identity.email, request_params.table_full_name
+ FROM system.access.audit
+ WHERE action_name = 'dropTable'
+   AND HOUR(event_time) NOT BETWEEN 7 AND 19;
+ ```
 
 ```python
 
 ```
-## Concept 69 — Row Filters & Column Masks
 
-### Unity Catalog Row Filters & Column Masks (UC 1.3+)
+ ### What You'd Do in Production
 
-Row filters and column masks are **table-level security policies** enforced by UDFs:
-
-**Row Filter:** A SQL UDF that returns TRUE for rows the user is allowed to see.
-```sql
-CREATE FUNCTION sales_filter(dept STRING)
-RETURN IS_MEMBER('hr_team')
-    OR (IS_MEMBER('managers') AND dept IN ('Engineering', 'Sales'))
-    OR CURRENT_USER() = CONCAT(dept, '_dept_head@company.com');
-
-ALTER TABLE hr.employee.data SET ROW FILTER sales_filter ON (dept);
-```
-
-**Column Mask:** A SQL UDF that returns the masked value for the column.
-```sql
-CREATE FUNCTION ssn_mask(ssn STRING)
-RETURN CASE
-    WHEN IS_MEMBER('hr_team') THEN ssn
-    ELSE 'XXX-XX-XXXX'
-END;
-
-ALTER TABLE hr.employee.data ALTER COLUMN ssn SET MASK ssn_mask;
-```
-
-**Critical difference from dynamic views:** These are bolted onto the **base table** — every query against the table (including direct `SELECT *`) is automatically filtered. There is no way to "accidentally" bypass the policy.
+ 1. **Enable audit logging** — it's on by default in all paid tiers, retained for 365 days.
+ 2. **Create alert queries** that run daily and flag suspicious activity (e.g., `dropTable` by unusual users).
+ 3. **Build an audit dashboard** in Databricks SQL with time-series charts of operations.
+ 4. **Integrate with SIEM systems** — export audit logs to Splunk, Azure Sentinel, or ELK Stack.
+ 5. **Set up retention policies** — archive old audit logs to cold storage for compliance.
+ 6. **Use audit data for cost analysis** — identify heavy query users and optimize.
 
 ```python
 
 ```
-### Community Edition — Row Filtering & Column Masking via Views
 
-In CE, we implement the same functionality using views (since we can't ALTER TABLE with row filters/column masks).
+ ## Concept 69 — Row Filters & Column Masks
+
+ ### Unity Catalog Row Filters & Column Masks (UC 1.3+)
+
+ Row filters and column masks are **table-level security policies** enforced by UDFs:
+
+ **Row Filter:** A SQL UDF that returns TRUE for rows the user is allowed to see.
+ ```sql
+ CREATE FUNCTION sales_filter(dept STRING)
+ RETURN IS_MEMBER('hr_team')
+     OR (IS_MEMBER('managers') AND dept IN ('Engineering', 'Sales'))
+     OR CURRENT_USER() = CONCAT(dept, '_dept_head@company.com');
+
+ ALTER TABLE hr.employee.data SET ROW FILTER sales_filter ON (dept);
+ ```
+
+ **Column Mask:** A SQL UDF that returns the masked value for the column.
+ ```sql
+ CREATE FUNCTION ssn_mask(ssn STRING)
+ RETURN CASE
+     WHEN IS_MEMBER('hr_team') THEN ssn
+     ELSE 'XXX-XX-XXXX'
+ END;
+
+ ALTER TABLE hr.employee.data ALTER COLUMN ssn SET MASK ssn_mask;
+ ```
+
+ **Critical difference from dynamic views:** These are bolted onto the **base table** — every query against the table (including direct `SELECT *`) is automatically filtered. There is no way to "accidentally" bypass the policy.
+
+```python
+
+```
+
+ ### Community Edition — Row Filtering & Column Masking via Views
+
+ In CE, we implement the same functionality using views (since we can't ALTER TABLE with row filters/column masks).
 
 ```python
 
@@ -1772,7 +1829,8 @@ display(spark.sql("SELECT * FROM hr_db.employee_complete ORDER BY emp_id"))
 ```python
 
 ```
-#### Define Role-Based Access Functions (Simulating UDF Row Filters / Column Masks)
+
+ #### Define Role-Based Access Functions (Simulating UDF Row Filters / Column Masks)
 
 ```python
 
@@ -1814,7 +1872,8 @@ print(f"  SSN Visibility:    {role_perms['ssn_visibility']}")
 ```python
 
 ```
-#### Row Filter Equivalent — A View That Automatically Filters Rows
+
+ #### Row Filter Equivalent — A View That Automatically Filters Rows
 
 ```python
 
@@ -1846,7 +1905,8 @@ display(spark.sql("SELECT emp_id, name, dept FROM hr_db.employee_row_filtered OR
 ```python
 
 ```
-#### Column Mask Equivalent — A View That Automatically Masks Columns
+
+ #### Column Mask Equivalent — A View That Automatically Masks Columns
 
 ```python
 
@@ -1897,7 +1957,8 @@ display(spark.sql("SELECT * FROM hr_db.employee_column_masked ORDER BY emp_id"))
 ```python
 
 ```
-#### Complete Security View — Row Filter + Column Mask Combined
+
+ #### Complete Security View — Row Filter + Column Mask Combined
 
 ```python
 
@@ -1955,7 +2016,8 @@ display(spark.sql("SELECT * FROM hr_db.employee_secure ORDER BY emp_id"))
 ```python
 
 ```
-### Test All Five Roles Through the Secure View
+
+ ### Test All Five Roles Through the Secure View
 
 ```python
 
@@ -2000,114 +2062,119 @@ spark.sql("""
 ```python
 
 ```
-### When to Use Row Filters / Column Masks vs Dynamic Views
 
-| Scenario | Best Approach | Why |
-|----------|--------------|-----|
-| One audience needs tailored columns | Dynamic View | View is purpose-built for that audience |
-| **All** queries must filter by region | **Row Filter on base table** | No way to bypass — even ad-hoc queries get filtered |
-| SSN must **never** be exposed to non-HR | **Column Mask on base table** | Absolute enforcement at the table level |
-| Multiple different rollups for different teams | Dynamic Views | Each team gets their own view |
-| Regulatory compliance (GDPR, HIPAA) | **Row Filter + Column Mask** | Mandatory, universal, non-circumventable |
-| Quick prototype or dashboard | Dynamic View | Simpler to create and iterate |
-| Data scientists doing exploratory analysis | Row Filter on base table | They query the table directly but see only allowed data |
+ ### When to Use Row Filters / Column Masks vs Dynamic Views
 
-**Rule of thumb:**
-- **Regulatory / mandatory policies** → Row filters + column masks on base tables
-- **Convenience / audience-specific views** → Dynamic views
-- **Both can coexist** — base table has masks, views provide convenient rollups on top.
+ | Scenario | Best Approach | Why |
+ |----------|--------------|-----|
+ | One audience needs tailored columns | Dynamic View | View is purpose-built for that audience |
+ | **All** queries must filter by region | **Row Filter on base table** | No way to bypass — even ad-hoc queries get filtered |
+ | SSN must **never** be exposed to non-HR | **Column Mask on base table** | Absolute enforcement at the table level |
+ | Multiple different rollups for different teams | Dynamic Views | Each team gets their own view |
+ | Regulatory compliance (GDPR, HIPAA) | **Row Filter + Column Mask** | Mandatory, universal, non-circumventable |
+ | Quick prototype or dashboard | Dynamic View | Simpler to create and iterate |
+ | Data scientists doing exploratory analysis | Row Filter on base table | They query the table directly but see only allowed data |
 
-```python
-
-```
-### Unity Catalog Row Filter & Column Mask Syntax (Reference)
-
-```sql
--- Step 1: Create a FILTER UDF (catalog-qualified)
-CREATE OR REPLACE FUNCTION hr_prod.employees.region_filter(region STRING)
-RETURN IS_MEMBER('hr_admins')
-    OR (IS_MEMBER('us_managers') AND region = 'US')
-    OR (IS_MEMBER('eu_managers') AND region = 'EU');
-
--- Step 2: Apply the row filter to the table
-ALTER TABLE hr_prod.employees.data
-SET ROW FILTER hr_prod.employees.region_filter ON (region);
-
--- Step 3: Create a MASK UDF
-CREATE OR REPLACE FUNCTION hr_prod.employees.ssn_mask(ssn STRING)
-RETURN CASE
-    WHEN IS_MEMBER('hr_admins') THEN ssn
-    WHEN IS_MEMBER('payroll') THEN CONCAT('***-**-', RIGHT(ssn, 4))
-    ELSE NULL
-END;
-
--- Step 4: Apply the column mask
-ALTER TABLE hr_prod.employees.data
-ALTER COLUMN ssn SET MASK hr_prod.employees.ssn_mask;
-
--- Show row filters on a table
-SHOW ROW FILTERS ON TABLE hr_prod.employees.data;
-
--- Remove a row filter
-ALTER TABLE hr_prod.employees.data DROP ROW FILTER region_filter;
-
--- Remove a column mask
-ALTER TABLE hr_prod.employees.data ALTER COLUMN ssn DROP MASK;
-```
+ **Rule of thumb:**
+ - **Regulatory / mandatory policies** → Row filters + column masks on base tables
+ - **Convenience / audience-specific views** → Dynamic views
+ - **Both can coexist** — base table has masks, views provide convenient rollups on top.
 
 ```python
 
 ```
-### What You'd Do in Production
 
-1. **Apply row filters on ALL tables containing regional or departmental data** — never rely on users to self-filter.
-2. **Apply column masks on ALL PII columns** — SSN, salary, phone, email, address, IP address.
-3. **Create the UDFs in the same schema as the tables** for clean organization.
-4. **Test with multiple user personas** before deploying to production.
-5. **Document each policy** — what it filters, why, and who is exempt.
-6. **Regularly review** with `SHOW ROW FILTERS` and `SHOW COLUMN MASKS` to ensure policies are still correct.
+ ### Unity Catalog Row Filter & Column Mask Syntax (Reference)
 
-```python
+ ```sql
+ -- Step 1: Create a FILTER UDF (catalog-qualified)
+ CREATE OR REPLACE FUNCTION hr_prod.employees.region_filter(region STRING)
+ RETURN IS_MEMBER('hr_admins')
+     OR (IS_MEMBER('us_managers') AND region = 'US')
+     OR (IS_MEMBER('eu_managers') AND region = 'EU');
 
-```
-## Concept 70 — Delta Sharing
+ -- Step 2: Apply the row filter to the table
+ ALTER TABLE hr_prod.employees.data
+ SET ROW FILTER hr_prod.employees.region_filter ON (region);
 
-### What Is Delta Sharing?
+ -- Step 3: Create a MASK UDF
+ CREATE OR REPLACE FUNCTION hr_prod.employees.ssn_mask(ssn STRING)
+ RETURN CASE
+     WHEN IS_MEMBER('hr_admins') THEN ssn
+     WHEN IS_MEMBER('payroll') THEN CONCAT('***-**-', RIGHT(ssn, 4))
+     ELSE NULL
+ END;
 
-Delta Sharing is an **open protocol** for securely sharing live data across organizations without copying it. It's built on Delta Lake and works with any platform that implements the sharing protocol (not just Databricks).
+ -- Step 4: Apply the column mask
+ ALTER TABLE hr_prod.employees.data
+ ALTER COLUMN ssn SET MASK hr_prod.employees.ssn_mask;
 
-```
-┌─────────────────────┐          ┌─────────────────────────┐
-│  DATA PROVIDER       │          │  DATA RECIPIENT           │
-│  (your company)      │          │  (partner/customer)       │
-│                      │          │                           │
-│  ┌─────────────┐    │  Share   │  ┌──────────────────┐    │
-│  │ Unity Catalog│────┼──────────┼──│ Databricks        │    │
-│  │   Tables     │    │ Activate │  │ (same/diff cloud) │    │
-│  └─────────────┘    │  Link    │  │                   │    │
-│                      │──────────┼──│ OR: Power BI      │    │
-│  Recipients:         │          │  │ OR: pandas 🐼     │    │
-│   - partner@acme.com│          │  │ OR: Spark         │    │
-│   - client@globex.io│          │  │ OR: Trino/Presto  │    │
-└─────────────────────┘          └─────────────────────────┘
-```
+ -- Show row filters on a table
+ SHOW ROW FILTERS ON TABLE hr_prod.employees.data;
 
-**Key properties:**
-- **No data copy** — recipient queries LIVE data (table changes visible immediately)
-- **Open protocol** — works with open-source Delta Sharing connectors
-- **Cross-platform** — Spark, pandas, Power BI, Tableau, Trino all supported
-- **Cross-cloud** — provider on AWS, recipient on Azure (or vice versa)
-- **Granular** — share specific tables, partitions, or even row-filtered subsets
+ -- Remove a row filter
+ ALTER TABLE hr_prod.employees.data DROP ROW FILTER region_filter;
+
+ -- Remove a column mask
+ ALTER TABLE hr_prod.employees.data ALTER COLUMN ssn DROP MASK;
+ ```
 
 ```python
 
 ```
-### Community Edition — Simulation of Delta Sharing
 
-CE cannot create actual Delta Shares. We simulate the concept by:
-1. Creating a "shareable" dataset (read-only view)
-2. Simulating the provider/recipient flow
-3. Demonstrating what the production code would look like
+ ### What You'd Do in Production
+
+ 1. **Apply row filters on ALL tables containing regional or departmental data** — never rely on users to self-filter.
+ 2. **Apply column masks on ALL PII columns** — SSN, salary, phone, email, address, IP address.
+ 3. **Create the UDFs in the same schema as the tables** for clean organization.
+ 4. **Test with multiple user personas** before deploying to production.
+ 5. **Document each policy** — what it filters, why, and who is exempt.
+ 6. **Regularly review** with `SHOW ROW FILTERS` and `SHOW COLUMN MASKS` to ensure policies are still correct.
+
+```python
+
+```
+
+ ## Concept 70 — Delta Sharing
+
+ ### What Is Delta Sharing?
+
+ Delta Sharing is an **open protocol** for securely sharing live data across organizations without copying it. It's built on Delta Lake and works with any platform that implements the sharing protocol (not just Databricks).
+
+ ```
+ ┌─────────────────────┐          ┌─────────────────────────┐
+ │  DATA PROVIDER       │          │  DATA RECIPIENT           │
+ │  (your company)      │          │  (partner/customer)       │
+ │                      │          │                           │
+ │  ┌─────────────┐    │  Share   │  ┌──────────────────┐    │
+ │  │ Unity Catalog│────┼──────────┼──│ Databricks        │    │
+ │  │   Tables     │    │ Activate │  │ (same/diff cloud) │    │
+ │  └─────────────┘    │  Link    │  │                   │    │
+ │                      │──────────┼──│ OR: Power BI      │    │
+ │  Recipients:         │          │  │ OR: pandas 🐼     │    │
+ │   - partner@acme.com│          │  │ OR: Spark         │    │
+ │   - client@globex.io│          │  │ OR: Trino/Presto  │    │
+ └─────────────────────┘          └─────────────────────────┘
+ ```
+
+ **Key properties:**
+ - **No data copy** — recipient queries LIVE data (table changes visible immediately)
+ - **Open protocol** — works with open-source Delta Sharing connectors
+ - **Cross-platform** — Spark, pandas, Power BI, Tableau, Trino all supported
+ - **Cross-cloud** — provider on AWS, recipient on Azure (or vice versa)
+ - **Granular** — share specific tables, partitions, or even row-filtered subsets
+
+```python
+
+```
+
+ ### Community Edition — Simulation of Delta Sharing
+
+ CE cannot create actual Delta Shares. We simulate the concept by:
+ 1. Creating a "shareable" dataset (read-only view)
+ 2. Simulating the provider/recipient flow
+ 3. Demonstrating what the production code would look like
 
 ```python
 
@@ -2133,7 +2200,8 @@ display(spark.sql("SELECT * FROM sales_db.shared_sales_summary ORDER BY product"
 ```python
 
 ```
-#### Simulate the Sharing Flow — Provider Side
+
+ #### Simulate the Sharing Flow — Provider Side
 
 ```python
 
@@ -2180,7 +2248,8 @@ print(provider_steps)
 ```python
 
 ```
-#### Simulate the Sharing Flow — Recipient Side
+
+ #### Simulate the Sharing Flow — Recipient Side
 
 ```python
 
@@ -2233,7 +2302,8 @@ print(recipient_credential_example)
 ```python
 
 ```
-### Simulate a "Shared" Read-Only View (CE Equivalent)
+
+ ### Simulate a "Shared" Read-Only View (CE Equivalent)
 
 ```python
 
@@ -2264,124 +2334,130 @@ display(spark.sql("SELECT * FROM sales_db.partner_view"))
 ```python
 
 ```
-#### Live Tables vs Snapshots
 
-| Feature | Delta Sharing (Live) | Traditional Data Export (Snapshot) |
-|---------|---------------------|-----------------------------------|
-| **Data freshness** | Real-time (live table) | Stale (point-in-time copy) |
-| **Data volume** | Recipient pays only for queries | Full copy transferred |
-| **Storage duplication** | None — reads from provider | Duplicate storage needed |
-| **Schema evolution** | Automatically visible | Manual re-export required |
-| **Revocation** | Immediate — revoke share access | Cannot retract sent files |
-| **Auditability** | Provider sees all recipient queries | No visibility after export |
-| **Security** | Token-based, encrypted in transit | Files could be forwarded |
-| **Governance** | UC policies enforced at read time | No enforcement after copy |
+ #### Live Tables vs Snapshots
 
-**Winner for regulatory data sharing:** Delta Sharing — revocable, auditable, always up-to-date.
+ | Feature | Delta Sharing (Live) | Traditional Data Export (Snapshot) |
+ |---------|---------------------|-----------------------------------|
+ | **Data freshness** | Real-time (live table) | Stale (point-in-time copy) |
+ | **Data volume** | Recipient pays only for queries | Full copy transferred |
+ | **Storage duplication** | None — reads from provider | Duplicate storage needed |
+ | **Schema evolution** | Automatically visible | Manual re-export required |
+ | **Revocation** | Immediate — revoke share access | Cannot retract sent files |
+ | **Auditability** | Provider sees all recipient queries | No visibility after export |
+ | **Security** | Token-based, encrypted in transit | Files could be forwarded |
+ | **Governance** | UC policies enforced at read time | No enforcement after copy |
 
-```python
-
-```
-### Delta Sharing Architecture Diagram
-
-```
-┌────────────────── PROVIDER ──────────────────┐
-│                                               │
-│  Unity Catalog                                │
-│  ┌──────────────────────────────────────┐    │
-│  │ SHARE: sales_insights_share            │    │
-│  │  ├── TABLE: shared_sales_summary       │    │
-│  │  └── TABLE: revenue_monthly (>=2025)  │    │
-│  └──────────────────────────────────────┘    │
-│                                               │
-│  Recipients:                                  │
-│   ├── acme_corp (CREATE CATALOG ... USING)    │
-│   └── globex_inc                              │
-└───────────────────┬───────────────────────────┘
-                    │
-              Delta Sharing Protocol
-              (REST API / gRPC)
-                    │
-┌───────────────────┴───────────────────────────┐
-│ RECIPIENT: acme_corp                           │
-│                                                 │
-│  Databricks Catalog: sales_from_partner         │
-│   ├── shared_sales_summary ← LIVE QUERY        │
-│   └── revenue_monthly      ← FILTERED (>=2025) │
-│                                                 │
-│  OR: Open-Source Client (pandas, Spark)         │
-└─────────────────────────────────────────────────┘
-```
+ **Winner for regulatory data sharing:** Delta Sharing — revocable, auditable, always up-to-date.
 
 ```python
 
 ```
-### What You'd Do in Production
 
-1. **Identify shareable data** — clean, aggregated datasets (never raw PII, never unprocessed logs).
-2. **Create shares by audience** — one share per partner, or one share per data product.
-3. **Use partition restrictions** — share only agreed-upon date ranges or regions.
-4. **Monitor recipient usage** — track query patterns via `system.access.audit`.
-5. **Set up expiration** — recipient tokens have expiry; rotate regularly.
-6. **Document the data contract** — what columns mean, refresh frequency, SLAs.
-7. **Test with open-source Delta Sharing** — verify the share works from a non-Databricks client before handing to partners.
-8. **Revoke promptly** — if a partnership ends, `DROP RECIPIENT` / `REVOKE SELECT ON SHARE` immediately.
+ ### Delta Sharing Architecture Diagram
 
-| Step | Command |
-|------|---------|
-| Create share | `CREATE SHARE sales_insights_share;` |
-| Add table | `ALTER SHARE ... ADD TABLE catalog.schema.table;` |
-| Create recipient | `CREATE RECIPIENT partner USING ID 'partner@domain.com';` |
-| Grant select | `GRANT SELECT ON SHARE sales_insights_share TO RECIPIENT partner;` |
-| Recipient mounts | `CREATE CATALOG shared_data USING SHARE partner.sales_insights_share;` |
-| Revoke | `REVOKE SELECT ON SHARE sales_insights_share FROM RECIPIENT partner;` |
-| Remove table | `ALTER SHARE sales_insights_share REMOVE TABLE catalog.schema.table;` |
-| Drop share | `DROP SHARE sales_insights_share;` |
-
-```python
-
-```
-## Summary — Unity Catalog & Governance
-
-### Concepts Covered (#61–#70)
-
-| # | Concept | Key Takeaway |
-|---|---------|-------------|
-| 61 | **Three-Level Namespace** | `catalog.schema.table` organizes data; UC maps to org structure |
-| 62 | **Permission Model** | Privileges cascade catalog→schema→table; use groups, not users |
-| 63 | **Dynamic Views** | `IS_MEMBER()` and `CURRENT_USER()` embed security logic in views |
-| 64 | **Data Lineage** | UC auto-tracks column-level lineage; critical for impact analysis |
-| 65 | **Information Schema** | `system.information_schema.*` provides ANSI-standard metadata queries |
-| 66 | **External Locations** | Governs cloud storage paths through UC; managed vs. external tables |
-| 67 | **Service Principals** | Machine identities for production; NEVER use personal accounts for jobs |
-| 68 | **Audit Logging** | `system.access.audit` records every operation for compliance |
-| 69 | **Row Filters & Column Masks** | Table-level security policies; non-circumventable |
-| 70 | **Delta Sharing** | Open protocol for live, cross-org data sharing without data copy |
+ ```
+ ┌────────────────── PROVIDER ──────────────────┐
+ │                                               │
+ │  Unity Catalog                                │
+ │  ┌──────────────────────────────────────┐    │
+ │  │ SHARE: sales_insights_share            │    │
+ │  │  ├── TABLE: shared_sales_summary       │    │
+ │  │  └── TABLE: revenue_monthly (>=2025)  │    │
+ │  └──────────────────────────────────────┘    │
+ │                                               │
+ │  Recipients:                                  │
+ │   ├── acme_corp (CREATE CATALOG ... USING)    │
+ │   └── globex_inc                              │
+ └───────────────────┬───────────────────────────┘
+                     │
+               Delta Sharing Protocol
+               (REST API / gRPC)
+                     │
+ ┌───────────────────┴───────────────────────────┐
+ │ RECIPIENT: acme_corp                           │
+ │                                                 │
+ │  Databricks Catalog: sales_from_partner         │
+ │   ├── shared_sales_summary ← LIVE QUERY        │
+ │   └── revenue_monthly      ← FILTERED (>=2025) │
+ │                                                 │
+ │  OR: Open-Source Client (pandas, Spark)         │
+ └─────────────────────────────────────────────────┘
+ ```
 
 ```python
 
 ```
-### Community Edition vs Production Unity Catalog — Comparison Matrix
 
-| Feature | Community Edition (Hive Metastore) | Production (Unity Catalog) |
-|---------|----------------------------------|----------------------------|
-| **Namespace** | `database.table` (2-level) | `catalog.schema.table` (3-level) |
-| **Permissions** | Limited Hive GRANT/REVOKE | Full RBAC with inheritance |
-| **Data lineage** | Manual tracking only | Automatic column-level lineage |
-| **Metadata** | `SHOW`/`DESCRIBE` commands | `system.information_schema.*` (ANSI SQL) |
-| **External locations** | Direct `LOCATION '/path/'` | UC-governed storage credentials + locations |
-| **Service principals** | Not available | Full support via Account API |
-| **Audit logging** | Must build manually | `system.access.audit` (automatic) |
-| **Row-level security** | Views only | Row filters + column masks on tables |
-| **Cross-org sharing** | Not available | Delta Sharing (open protocol) |
-| **Cost** | Free (limited resources) | Paid DBU + cloud costs |
+ ### What You'd Do in Production
+
+ 1. **Identify shareable data** — clean, aggregated datasets (never raw PII, never unprocessed logs).
+ 2. **Create shares by audience** — one share per partner, or one share per data product.
+ 3. **Use partition restrictions** — share only agreed-upon date ranges or regions.
+ 4. **Monitor recipient usage** — track query patterns via `system.access.audit`.
+ 5. **Set up expiration** — recipient tokens have expiry; rotate regularly.
+ 6. **Document the data contract** — what columns mean, refresh frequency, SLAs.
+ 7. **Test with open-source Delta Sharing** — verify the share works from a non-Databricks client before handing to partners.
+ 8. **Revoke promptly** — if a partnership ends, `DROP RECIPIENT` / `REVOKE SELECT ON SHARE` immediately.
+
+ | Step | Command |
+ |------|---------|
+ | Create share | `CREATE SHARE sales_insights_share;` |
+ | Add table | `ALTER SHARE ... ADD TABLE catalog.schema.table;` |
+ | Create recipient | `CREATE RECIPIENT partner USING ID 'partner@domain.com';` |
+ | Grant select | `GRANT SELECT ON SHARE sales_insights_share TO RECIPIENT partner;` |
+ | Recipient mounts | `CREATE CATALOG shared_data USING SHARE partner.sales_insights_share;` |
+ | Revoke | `REVOKE SELECT ON SHARE sales_insights_share FROM RECIPIENT partner;` |
+ | Remove table | `ALTER SHARE sales_insights_share REMOVE TABLE catalog.schema.table;` |
+ | Drop share | `DROP SHARE sales_insights_share;` |
 
 ```python
 
 ```
-### Self-Assessment — Test Your Understanding
 
-Answer these questions to validate your learning:
+ ## Summary — Unity Catalog & Governance
+
+ ### Concepts Covered (#61–#70)
+
+ | # | Concept | Key Takeaway |
+ |---|---------|-------------|
+ | 61 | **Three-Level Namespace** | `catalog.schema.table` organizes data; UC maps to org structure |
+ | 62 | **Permission Model** | Privileges cascade catalog→schema→table; use groups, not users |
+ | 63 | **Dynamic Views** | `IS_MEMBER()` and `CURRENT_USER()` embed security logic in views |
+ | 64 | **Data Lineage** | UC auto-tracks column-level lineage; critical for impact analysis |
+ | 65 | **Information Schema** | `system.information_schema.*` provides ANSI-standard metadata queries |
+ | 66 | **External Locations** | Governs cloud storage paths through UC; managed vs. external tables |
+ | 67 | **Service Principals** | Machine identities for production; NEVER use personal accounts for jobs |
+ | 68 | **Audit Logging** | `system.access.audit` records every operation for compliance |
+ | 69 | **Row Filters & Column Masks** | Table-level security policies; non-circumventable |
+ | 70 | **Delta Sharing** | Open protocol for live, cross-org data sharing without data copy |
+
+```python
+
+```
+
+ ### Community Edition vs Production Unity Catalog — Comparison Matrix
+
+ | Feature | Community Edition (Hive Metastore) | Production (Unity Catalog) |
+ |---------|----------------------------------|----------------------------|
+ | **Namespace** | `database.table` (2-level) | `catalog.schema.table` (3-level) |
+ | **Permissions** | Limited Hive GRANT/REVOKE | Full RBAC with inheritance |
+ | **Data lineage** | Manual tracking only | Automatic column-level lineage |
+ | **Metadata** | `SHOW`/`DESCRIBE` commands | `system.information_schema.*` (ANSI SQL) |
+ | **External locations** | Direct `LOCATION '/path/'` | UC-governed storage credentials + locations |
+ | **Service principals** | Not available | Full support via Account API |
+ | **Audit logging** | Must build manually | `system.access.audit` (automatic) |
+ | **Row-level security** | Views only | Row filters + column masks on tables |
+ | **Cross-org sharing** | Not available | Delta Sharing (open protocol) |
+ | **Cost** | Free (limited resources) | Paid DBU + cloud costs |
+
+```python
+
+```
+
+ ### Self-Assessment — Test Your Understanding
+
+ Answer these questions to validate your learning:
 
 ```python
 
@@ -2458,44 +2534,46 @@ print(questions)
 ```python
 
 ```
-### Key Governance Principles — Cheat Sheet
 
-```
-1. LEAST PRIVILEGE
-   Grant minimum access needed. Start from zero. Expand only with justification.
+ ### Key Governance Principles — Cheat Sheet
 
-2. GROUPS, NOT USERS
-   Never grant privileges to individuals. Use account groups. Manage membership centrally.
+ ```
+ 1. LEAST PRIVILEGE
+    Grant minimum access needed. Start from zero. Expand only with justification.
 
-3. MACHINE IDENTITIES
-   Production jobs → Service principals. Interactive work → User accounts. Never mix.
+ 2. GROUPS, NOT USERS
+    Never grant privileges to individuals. Use account groups. Manage membership centrally.
 
-4. DEFENSE IN DEPTH
-   Dynamic views for UX, row filters + column masks for enforcement. Layer them.
+ 3. MACHINE IDENTITIES
+    Production jobs → Service principals. Interactive work → User accounts. Never mix.
 
-5. AUDIT EVERYTHING
-   If it's not logged, it didn't happen. Use system.access.audit for compliance.
+ 4. DEFENSE IN DEPTH
+    Dynamic views for UX, row filters + column masks for enforcement. Layer them.
 
-6. CATALOG TOPOLOGY MATTERS
-   Design catalog/schema hierarchy to match your org. Plan before creating tables.
+ 5. AUDIT EVERYTHING
+    If it's not logged, it didn't happen. Use system.access.audit for compliance.
 
-7. MANAGED vs EXTERNAL
-   Managed tables: UC handles lifecycle. External tables: you keep the files.
+ 6. CATALOG TOPOLOGY MATTERS
+    Design catalog/schema hierarchy to match your org. Plan before creating tables.
 
-8. SHARE WITHOUT COPYING
-   Delta Sharing for live, revocable data sharing. No more CSV exports.
+ 7. MANAGED vs EXTERNAL
+    Managed tables: UC handles lifecycle. External tables: you keep the files.
 
-9. METADATA IS POWER
-   information_schema tells you everything about your data estate. Query it regularly.
+ 8. SHARE WITHOUT COPYING
+    Delta Sharing for live, revocable data sharing. No more CSV exports.
 
-10. LINEAGE IS AUTOMATIC
-    UC traces column-level lineage without instrumentation. Use it for impact analysis.
-```
+ 9. METADATA IS POWER
+    information_schema tells you everything about your data estate. Query it regularly.
+
+ 10. LINEAGE IS AUTOMATIC
+     UC traces column-level lineage without instrumentation. Use it for impact analysis.
+ ```
 
 ```python
 
 ```
-### Cleanup — Drop Objects Created in This Notebook
+
+ ### Cleanup — Drop Objects Created in This Notebook
 
 ```python
 
@@ -2513,6 +2591,7 @@ tables_to_drop = [
     "sales_db.audit_log",
     "sales_db.orders_managed",
     "sales_db.orders_external",
+    "default.orders_external",
     "sales_db.audit_test_table",
     "hr_db.employees",
     "hr_db.payroll",
@@ -2563,21 +2642,22 @@ print("\nCleanup complete.")
 ```python
 
 ```
-## End of Notebook — 07 Unity Catalog & Governance
 
-**What you learned:**
-- The three-level catalog namespace and how it maps to organizational structure
-- Unity Catalog's privilege model with cascade inheritance
-- Building dynamic views for row-level and column-level security
-- Automatic data lineage and manual lineage tracking techniques
-- Querying information schema for metadata discovery and compliance
-- External locations and the managed vs external table distinction
-- Service principals as non-human identities for production workloads
-- Audit logging for compliance and forensic investigation
-- Row filters and column masks as table-level security enforcement
-- Delta Sharing for live, cross-organization data sharing
+ ## End of Notebook — 07 Unity Catalog & Governance
 
-**Next:** Move to the capstone project — apply everything you've learned in a comprehensive end-to-end pipeline!
+ **What you learned:**
+ - The three-level catalog namespace and how it maps to organizational structure
+ - Unity Catalog's privilege model with cascade inheritance
+ - Building dynamic views for row-level and column-level security
+ - Automatic data lineage and manual lineage tracking techniques
+ - Querying information schema for metadata discovery and compliance
+ - External locations and the managed vs external table distinction
+ - Service principals as non-human identities for production workloads
+ - Audit logging for compliance and forensic investigation
+ - Row filters and column masks as table-level security enforcement
+ - Delta Sharing for live, cross-organization data sharing
+
+ **Next:** Move to the capstone project — apply everything you've learned in a comprehensive end-to-end pipeline!
 
 ```python
 ```

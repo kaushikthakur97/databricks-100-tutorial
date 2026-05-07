@@ -32,17 +32,20 @@
 
 # COMMAND ----------
 
-# Define base working directory
-import os
+# Define working database
+db_name = "default"
 
-base_dir = "/tmp/delta_lake_fundamentals"
+# Clean up any previous tables from this notebook
+for t in ["delta_orders_acid", "delta_orders_acid_fail", "delta_time_travel",
+          "delta_tt_demo", "delta_patients", "delta_patients_auto",
+          "delta_cluster_zorder", "delta_cluster_liquid", "delta_unoptimized",
+          "delta_optimized", "delta_vacuum", "delta_cdf",
+          "delta_dv_traditional", "delta_dv_enabled", "delta_props",
+          "delta_colmap"]:
+    spark.sql(f"DROP TABLE IF EXISTS {db_name}.{t}")
 
-# Clean up any previous runs
-dbutils.fs.rm(base_dir, recurse=True)
-
-# Create fresh directory — DBFS paths don't need explicit mkdir, but we'll log it
-print(f"Working directory set to: {base_dir}")
-print("Cleaned up any previous tables in this location.")
+print(f"Working database: {db_name}")
+print("Cleaned up any previous tables from this notebook.")
 
 # COMMAND ----------
 
@@ -72,7 +75,7 @@ print("CONCEPT 1: ACID Transactions")
 print("=" * 60)
 
 # Clean up from any previous runs
-spark.sql(f"DROP TABLE IF EXISTS delta_orders")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_orders_acid")
 
 # Create a Delta table with synthetic sales order data
 orders_data = [
@@ -87,15 +90,10 @@ orders_df = spark.createDataFrame(
     orders_data, ["order_id", "product", "quantity", "price", "status"]
 )
 
-orders_df.write.format("delta").mode("overwrite").save(f"{base_dir}/orders_acid")
-
-# Register as a table for SQL access
-spark.sql(
-    f"CREATE TABLE IF NOT EXISTS delta_orders USING DELTA LOCATION '{base_dir}/orders_acid'"
-)
+orders_df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_orders_acid")
 
 print("\nInitial orders table:")
-spark.sql("SELECT * FROM delta_orders").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_orders_acid").show()
 
 # COMMAND ----------
 
@@ -107,8 +105,8 @@ spark.sql("SELECT * FROM delta_orders").show()
 # COMMAND ----------
 
 # Demonstrate atomicity: MERGE performs INSERT + UPDATE atomically
-spark.sql("""
-    MERGE INTO delta_orders AS target
+spark.sql(f"""
+    MERGE INTO {db_name}.delta_orders_acid AS target
     USING (
         SELECT 1006 AS order_id, 'Webcam' AS product, 4 AS quantity,
                60.00 AS price, 'confirmed' AS status
@@ -123,7 +121,7 @@ spark.sql("""
 """)
 
 print("After atomic MERGE (INSERT + UPDATE in one transaction):")
-spark.sql("SELECT * FROM delta_orders ORDER BY order_id").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_orders_acid ORDER BY order_id").show()
 
 # COMMAND ----------
 
@@ -135,7 +133,7 @@ spark.sql("SELECT * FROM delta_orders ORDER BY order_id").show()
 # COMMAND ----------
 
 # Check current row count
-current_count = spark.sql("SELECT COUNT(*) AS cnt FROM delta_orders").collect()[0]["cnt"]
+current_count = spark.sql(f"SELECT COUNT(*) AS cnt FROM {db_name}.delta_orders_acid").collect()[0]["cnt"]
 print(f"Current row count: {current_count}")
 
 # Attempt a failed write — this INSERT will fail because of a schema mismatch
@@ -145,7 +143,7 @@ try:
     bad_df = spark.createDataFrame(bad_data, ["order_id", "product", "quantity", "price"])
     # This won't fail on schema — let's do a proper failure scenario:
     # Write a DataFrame with a column that violates constraints
-    bad_df.write.format("delta").mode("append").save(f"{base_dir}/orders_acid_fail")
+    bad_df.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_orders_acid_fail")
     print("Write succeeded (unexpected)")
 except Exception as e:
     print(f"Write failed as expected: {str(e)[:200]}")
@@ -156,29 +154,26 @@ except Exception as e:
 # Better approach: create a table and attempt to insert NULL into a NOT NULL column
 
 # Create a table with a NOT NULL constraint
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_orders_acid_fail")
 spark.sql(f"""
-    DROP TABLE IF EXISTS delta_constrained
-""")
-spark.sql(f"""
-    CREATE TABLE delta_constrained (id INT, name STRING NOT NULL)
+    CREATE TABLE {db_name}.delta_orders_acid_fail (id INT, name STRING NOT NULL)
     USING DELTA
-    LOCATION '{base_dir}/delta_constrained'
 """)
 
-spark.sql("INSERT INTO delta_constrained VALUES (1, 'Alice')")
+spark.sql(f"INSERT INTO {db_name}.delta_orders_acid_fail VALUES (1, 'Alice')")
 print("Before failed insert:")
-spark.sql("SELECT * FROM delta_constrained").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_orders_acid_fail").show()
 
 # Now attempt to insert NULL — this should fail and roll back
 try:
-    spark.sql("INSERT INTO delta_constrained VALUES (2, CAST(NULL AS STRING))")
+    spark.sql(f"INSERT INTO {db_name}.delta_orders_acid_fail VALUES (2, CAST(NULL AS STRING))")
 except Exception as e:
     print(f"Expected failure — NULL constraint violated: {str(e)[:200]}")
 
 # Verify no partial data was committed
 print("After failed insert (should still have only 1 row):")
-spark.sql("SELECT * FROM delta_constrained").show()
-row_count_after = spark.sql("SELECT COUNT(*) AS cnt FROM delta_constrained").collect()[0]["cnt"]
+spark.sql(f"SELECT * FROM {db_name}.delta_orders_acid_fail").show()
+row_count_after = spark.sql(f"SELECT COUNT(*) AS cnt FROM {db_name}.delta_orders_acid_fail").collect()[0]["cnt"]
 assert row_count_after == 1, f"Expected 1 row, got {row_count_after} — ACID failure!"
 print(f"ACID property verified: Row count is {row_count_after} (rollback worked)")
 
@@ -194,23 +189,23 @@ print(f"ACID property verified: Row count is {row_count_after} (rollback worked)
 print("\n=== Optimistic Concurrency Control Demo ===")
 
 # Read the current table for two concurrent "writers"
-df_writer1 = spark.sql("SELECT * FROM delta_orders")
-df_writer2 = spark.sql("SELECT * FROM delta_orders")
+df_writer1 = spark.sql(f"SELECT * FROM {db_name}.delta_orders_acid")
+df_writer2 = spark.sql(f"SELECT * FROM {db_name}.delta_orders_acid")
 
 # Simulate writer 1 appending data (this will succeed)
 new_order1 = [(2001, "Tablet", 2, 350.00, "confirmed")]
 new_df1 = spark.createDataFrame(new_order1, ["order_id", "product", "quantity", "price", "status"])
-new_df1.write.format("delta").mode("append").save(f"{base_dir}/orders_acid")
+new_df1.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_orders_acid")
 print("Writer 1 committed successfully.")
 
 # Simulate writer 2 ALSO appending data (this should also succeed — appends are non-conflicting)
 new_order2 = [(2002, "Dock", 1, 120.00, "pending")]
 new_df2 = spark.createDataFrame(new_order2, ["order_id", "product", "quantity", "price", "status"])
-new_df2.write.format("delta").mode("append").save(f"{base_dir}/orders_acid")
+new_df2.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_orders_acid")
 print("Writer 2 committed successfully (both appends are non-conflicting).")
 
 print("\nFinal table after both concurrent appends:")
-spark.sql("SELECT * FROM delta_orders ORDER BY order_id").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_orders_acid ORDER BY order_id").show()
 
 print("\nKEY INSIGHT: Delta uses optimistic concurrency — appends don't conflict,")
 print("but if two writers try to update the SAME row, the second commit is rejected.")
@@ -257,9 +252,7 @@ print("CONCEPT 2: Transaction Log (_delta_log)")
 print("=" * 60)
 
 # Create a fresh Delta table and build up some history
-table_path = f"{base_dir}/tlog_demo"
-
-spark.sql(f"DROP TABLE IF EXISTS tlog_table")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_time_travel")
 
 # Create initial data
 initial_data = [
@@ -268,18 +261,15 @@ initial_data = [
     (3, "Charlie", "Engineering", 105000),
 ]
 df = spark.createDataFrame(initial_data, ["id", "name", "dept", "salary"])
-df.write.format("delta").mode("overwrite").save(table_path)
-
-# Register table
-spark.sql(f"CREATE TABLE IF NOT EXISTS tlog_table USING DELTA LOCATION '{table_path}'")
+df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_time_travel")
 
 # Perform multiple operations to build up log entries
-spark.sql("INSERT INTO tlog_table VALUES (4, 'Diana', 'Marketing', 88000)")
-spark.sql("INSERT INTO tlog_table VALUES (5, 'Eve', 'Engineering', 110000)")
-spark.sql("UPDATE tlog_table SET salary = 98000 WHERE id = 1")
-spark.sql("INSERT INTO tlog_table VALUES (6, 'Frank', 'Sales', 76000)")
-spark.sql("DELETE FROM tlog_table WHERE id = 6")
-spark.sql("INSERT INTO tlog_table VALUES (7, 'Grace', 'Marketing', 92000)")
+spark.sql(f"INSERT INTO {db_name}.delta_time_travel VALUES (4, 'Diana', 'Marketing', 88000)")
+spark.sql(f"INSERT INTO {db_name}.delta_time_travel VALUES (5, 'Eve', 'Engineering', 110000)")
+spark.sql(f"UPDATE {db_name}.delta_time_travel SET salary = 98000 WHERE id = 1")
+spark.sql(f"INSERT INTO {db_name}.delta_time_travel VALUES (6, 'Frank', 'Sales', 76000)")
+spark.sql(f"DELETE FROM {db_name}.delta_time_travel WHERE id = 6")
+spark.sql(f"INSERT INTO {db_name}.delta_time_travel VALUES (7, 'Grace', 'Marketing', 92000)")
 
 print("Performed 6 operations on the table (creates 6 new versions beyond v0).")
 
@@ -292,37 +282,29 @@ print("Performed 6 operations on the table (creates 6 new versions beyond v0).")
 
 # COMMAND ----------
 
-# List the contents of the _delta_log directory
-print("Contents of _delta_log directory:")
-log_entries = dbutils.fs.ls(f"{table_path}/_delta_log")
-for entry in log_entries:
-    size_kb = entry.size / 1024 if entry.size > 0 else 0
-    print(f"  {entry.name:<40} {size_kb:>8.2f} KB")
+# Use DESCRIBE HISTORY to inspect transaction log entries
+print("Transaction log entries (via DESCRIBE HISTORY):")
+history_df = spark.sql(f"DESCRIBE HISTORY {db_name}.delta_time_travel")
+history_df.select("version", "operation", "operationMetrics", "timestamp").show(truncate=False)
 
-print(f"\nTotal log entries: {len(log_entries)}")
+num_versions = history_df.count()
+print(f"\nTotal versions in transaction log: {num_versions}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #### Read the Latest JSON Transaction Log Entry
+# MAGIC #### Transaction Log Entry Details
 # MAGIC
-# MAGIC Each JSON file contains a sequence of actions: `add`, `remove`, `metaData`, `commitInfo`, etc.
+# MAGIC Each transaction log entry records operations like `WRITE`, `MERGE`, `UPDATE`, `DELETE` along with operation metrics showing how many rows were added or removed.
 
 # COMMAND ----------
 
-# Read and display the most recent JSON log entry
-import json
-
-# Get the last .json file (most recent transaction)
-json_files = sorted([e.name for e in log_entries if e.name.endswith(".json")])
-latest_json = json_files[-1]
-print(f"Reading latest transaction log entry: {latest_json}")
-content = spark.read.text(f"{table_path}/_delta_log/{latest_json}").collect()
-for row in content[:5]:  # Show first 5 lines
-    parsed = json.loads(row.value)
-    action_type = list(parsed.keys())[0]
-    print(f"\nAction: {action_type}")
-    print(json.dumps(parsed[action_type], indent=2)[:500])
+# Show the latest transaction log entry in detail
+print("Latest transaction log entry:")
+spark.sql(f"DESCRIBE HISTORY {db_name}.delta_time_travel") \
+    .orderBy("version", ascending=False) \
+    .select("version", "operation", "operationParameters", "operationMetrics", "timestamp") \
+    .show(1, truncate=False)
 
 # COMMAND ----------
 
@@ -333,7 +315,7 @@ for row in content[:5]:  # Show first 5 lines
 
 # DESCRIBE HISTORY shows the full transaction log in human-readable form
 print("\nTransaction History (DESCRIBE HISTORY):")
-spark.sql("DESCRIBE HISTORY tlog_table").select(
+spark.sql(f"DESCRIBE HISTORY {db_name}.delta_time_travel").select(
     "version", "operation", "operationMetrics", "timestamp"
 ).show(truncate=False)
 
@@ -348,19 +330,22 @@ spark.sql("DESCRIBE HISTORY tlog_table").select(
 
 # Perform enough operations to trigger a checkpoint (10 more commits)
 for i in range(10):
-    spark.sql(f"INSERT INTO tlog_table VALUES ({100 + i}, 'TestUser{i}', 'QA', {50000 + i * 1000})")
+    spark.sql(f"INSERT INTO {db_name}.delta_time_travel VALUES ({100 + i}, 'TestUser{i}', 'QA', {50000 + i * 1000})")
 
 print("Performed 10 more INSERTs to trigger checkpoint creation.")
 
-# Re-list the _delta_log directory
-updated_log_entries = dbutils.fs.ls(f"{table_path}/_delta_log")
-print("\nUpdated _delta_log contents:")
-for entry in updated_log_entries:
-    size_kb = entry.size / 1024 if entry.size > 0 else 0
-    print(f"  {entry.name:<40} {size_kb:>8.2f} KB")
+# Use DESCRIBE DETAIL to check if version count increased
+detail_after = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_time_travel")
+detail_info = detail_after.select("numFiles", "sizeInBytes", "numRecords").collect()[0]
+print(f"\nAfter 10 more operations:")
+print(f"  numFiles: {detail_info['numFiles']}")
+print(f"  sizeInBytes: {detail_info['sizeInBytes']}")
+print(f"  numRecords: {detail_info['numRecords']}")
 
-has_checkpoint = any(e.name.endswith(".checkpoint.parquet") for e in updated_log_entries)
-print(f"\nCheckpoint file present: {has_checkpoint}")
+# DESCRIBE HISTORY shows checkpoint versions
+history_after = spark.sql(f"DESCRIBE HISTORY {db_name}.delta_time_travel")
+total_versions = history_after.count()
+print(f"\nTotal versions (including checkpoints): {total_versions}")
 print("Checkpoints dramatically speed up state reconstruction by avoiding full log replay.")
 
 # COMMAND ----------
@@ -404,8 +389,7 @@ print("CONCEPT 3: Time Travel & RESTORE")
 print("=" * 60)
 
 # Create a table with versioned data
-tt_path = f"{base_dir}/timetravel_demo"
-spark.sql(f"DROP TABLE IF EXISTS timetravel_sales")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_tt_demo")
 
 sales_init = [
     ("2024-01-01", "Product-A", 10, 150.00),
@@ -413,28 +397,26 @@ sales_init = [
     ("2024-01-02", "Product-A", 8, 160.00),
 ]
 df = spark.createDataFrame(sales_init, ["sale_date", "product", "quantity", "amount"])
-df.write.format("delta").mode("overwrite").save(tt_path)
-
-spark.sql(f"CREATE TABLE IF NOT EXISTS timetravel_sales USING DELTA LOCATION '{tt_path}'")
+df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_tt_demo")
 print("Version 0 created (3 records).")
 
 # Version 1: Insert new data
-spark.sql("INSERT INTO timetravel_sales VALUES ('2024-01-03', 'Product-C', 12, 300.00)")
+spark.sql(f"INSERT INTO {db_name}.delta_tt_demo VALUES ('2024-01-03', 'Product-C', 12, 300.00)")
 
 # Version 2: Update prices
-spark.sql("UPDATE timetravel_sales SET amount = amount * 1.1 WHERE product = 'Product-A'")
+spark.sql(f"UPDATE {db_name}.delta_tt_demo SET amount = amount * 1.1 WHERE product = 'Product-A'")
 
 # Version 3: Delete a product
-spark.sql("DELETE FROM timetravel_sales WHERE product = 'Product-B'")
+spark.sql(f"DELETE FROM {db_name}.delta_tt_demo WHERE product = 'Product-B'")
 
 # Version 4: More inserts
-spark.sql("INSERT INTO timetravel_sales VALUES ('2024-01-04', 'Product-D', 3, 450.00)")
+spark.sql(f"INSERT INTO {db_name}.delta_tt_demo VALUES ('2024-01-04', 'Product-D', 3, 450.00)")
 
 print("Versions 1-4 created (inserts, updates, deletes).")
 
 # View history
 print("\nFull history:")
-spark.sql("DESCRIBE HISTORY timetravel_sales").select(
+spark.sql(f"DESCRIBE HISTORY {db_name}.delta_tt_demo").select(
     "version", "operation", "operationMetrics", "timestamp"
 ).show(truncate=False)
 
@@ -447,20 +429,20 @@ spark.sql("DESCRIBE HISTORY timetravel_sales").select(
 
 # Query current version
 print("Current table (latest version):")
-spark.sql("SELECT * FROM timetravel_sales ORDER BY sale_date, product").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_tt_demo ORDER BY sale_date, product").show()
 
 # Query Version 0 (original data)
 print("Version 0 (original create):")
-spark.sql("SELECT * FROM timetravel_sales VERSION AS OF 0 ORDER BY sale_date, product").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_tt_demo VERSION AS OF 0 ORDER BY sale_date, product").show()
 
 # Query Version 2 (after price update, before delete)
 print("Version 2 (after price update, before delete of Product-B):")
-spark.sql("SELECT * FROM timetravel_sales VERSION AS OF 2 ORDER BY sale_date, product").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_tt_demo VERSION AS OF 2 ORDER BY sale_date, product").show()
 
 # Count rows at each version
 print("Row counts across versions:")
 for v in range(5):
-    cnt = spark.sql(f"SELECT COUNT(*) AS cnt FROM timetravel_sales VERSION AS OF {v}").collect()[0]["cnt"]
+    cnt = spark.sql(f"SELECT COUNT(*) AS cnt FROM {db_name}.delta_tt_demo VERSION AS OF {v}").collect()[0]["cnt"]
     print(f"  Version {v}: {cnt} rows")
 
 # COMMAND ----------
@@ -472,18 +454,18 @@ for v in range(5):
 
 # Before restore — check current state
 print("BEFORE RESTORE (latest version):")
-spark.sql("SELECT * FROM timetravel_sales ORDER BY sale_date, product").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_tt_demo ORDER BY sale_date, product").show()
 
 # Restore to version 2
-spark.sql("RESTORE TABLE timetravel_sales TO VERSION AS OF 2")
+spark.sql(f"RESTORE TABLE {db_name}.delta_tt_demo TO VERSION AS OF 2")
 print("\nRESTORE to version 2 completed.")
 
 print("AFTER RESTORE (should match version 2):")
-spark.sql("SELECT * FROM timetravel_sales ORDER BY sale_date, product").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_tt_demo ORDER BY sale_date, product").show()
 
 # Verify history now shows RESTORE operation
 print("\nHistory after RESTORE:")
-spark.sql("DESCRIBE HISTORY timetravel_sales").select(
+spark.sql(f"DESCRIBE HISTORY {db_name}.delta_tt_demo").select(
     "version", "operation", "operationMetrics", "timestamp"
 ).show(truncate=False)
 
@@ -495,12 +477,12 @@ spark.sql("DESCRIBE HISTORY timetravel_sales").select(
 # COMMAND ----------
 
 # Get a timestamp from the history to use for time travel
-history_df = spark.sql("DESCRIBE HISTORY timetravel_sales")
+history_df = spark.sql(f"DESCRIBE HISTORY {db_name}.delta_tt_demo")
 version_1_ts = history_df.filter("version = 1").select("timestamp").collect()[0][0]
 print(f"Querying table as of timestamp: {version_1_ts}")
 
 spark.sql(f"""
-    SELECT * FROM timetravel_sales
+    SELECT * FROM {db_name}.delta_tt_demo
     TIMESTAMP AS OF '{version_1_ts}'
     ORDER BY sale_date, product
 """).show()
@@ -515,7 +497,7 @@ spark.sql(f"""
 # COMMAND ----------
 
 # Check the table's log retention setting
-props = spark.sql("SHOW TBLPROPERTIES timetravel_sales").filter("key like '%retention%' OR key like '%deleted%'")
+props = spark.sql(f"SHOW TBLPROPERTIES {db_name}.delta_tt_demo").filter("key like '%retention%' OR key like '%deleted%'")
 print("Relevant table properties:")
 props.show(truncate=False)
 
@@ -564,8 +546,7 @@ print("CONCEPT 4: Schema Enforcement vs. Evolution")
 print("=" * 60)
 
 # Create a table with a strict schema
-schema_path = f"{base_dir}/schema_demo"
-spark.sql(f"DROP TABLE IF EXISTS schema_patients")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_patients")
 
 # Initial data with a known schema
 patients = [
@@ -574,9 +555,7 @@ patients = [
     (3, "Bob Johnson", 42, "B+"),
 ]
 df_patients = spark.createDataFrame(patients, ["id", "name", "age", "blood_type"])
-df_patients.write.format("delta").mode("overwrite").save(schema_path)
-
-spark.sql(f"CREATE TABLE IF NOT EXISTS schema_patients USING DELTA LOCATION '{schema_path}'")
+df_patients.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_patients")
 print("Initial table created with schema: id INT, name STRING, age INT, blood_type STRING")
 
 # COMMAND ----------
@@ -592,7 +571,7 @@ print("\n=== Schema Enforcement Demo ===")
 try:
     bad_type_data = [(4, "Bad Guy", "thirty-five", "AB+")]
     bad_type_df = spark.createDataFrame(bad_type_data, ["id", "name", "age", "blood_type"])
-    bad_type_df.write.format("delta").mode("append").save(schema_path)
+    bad_type_df.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_patients")
     print("Write succeeded (unexpected — schema enforcement failed)")
 except Exception as e:
     error_msg = str(e)
@@ -605,7 +584,7 @@ print("\n")
 try:
     extra_col_data = [(5, "Extra Person", 30, "A-", "extradata")]
     extra_col_df = spark.createDataFrame(extra_col_data, ["id", "name", "age", "blood_type", "extra"])
-    extra_col_df.write.format("delta").mode("append").save(schema_path)
+    extra_col_df.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_patients")
     print("Write succeeded (unexpected)")
 except Exception as e:
     error_msg = str(e)
@@ -618,7 +597,7 @@ print("\n")
 try:
     missing_col_data = [(6, "Missing Data", 22)]
     missing_col_df = spark.createDataFrame(missing_col_data, ["id", "name", "age"])
-    missing_col_df.write.format("delta").mode("append").save(schema_path)
+    missing_col_df.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_patients")
     print("Write succeeded (unexpected)")
 except Exception as e:
     error_msg = str(e)
@@ -626,7 +605,7 @@ except Exception as e:
     print(f"Error snippet: {error_msg[:200]}")
 
 print("\nTable is unchanged:")
-spark.sql("SELECT * FROM schema_patients").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_patients").show()
 
 # COMMAND ----------
 
@@ -644,17 +623,17 @@ new_data_with_email = [
 ]
 new_df = spark.createDataFrame(new_data_with_email, ["id", "name", "age", "blood_type", "email"])
 
-new_df.write.format("delta").mode("append").option("mergeSchema", "true").save(schema_path)
+new_df.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(f"{db_name}.delta_patients")
 
 print("Data with NEW column 'email' written successfully using mergeSchema!")
 
 # Show the evolved table
 print("\nTable now has the 'email' column:")
-spark.sql("SELECT * FROM schema_patients ORDER BY id").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_patients ORDER BY id").show()
 
 # Check the schema
 print("\nUpdated schema:")
-spark.sql("DESCRIBE schema_patients").show(truncate=False)
+spark.sql(f"DESCRIBE {db_name}.delta_patients").show(truncate=False)
 
 # COMMAND ----------
 
@@ -672,13 +651,13 @@ replacement_df = spark.createDataFrame(
     replacement_data, ["id", "name", "age", "blood_type", "email", "tier"]
 )
 
-replacement_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(schema_path)
+replacement_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{db_name}.delta_patients")
 
 print("overwriteSchema applied — data AND schema replaced.")
 print("Note: This REPLACES all data, unlike mergeSchema which is non-destructive.")
-spark.sql("SELECT * FROM schema_patients").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_patients").show()
 
-spark.sql("DESCRIBE schema_patients").show(truncate=False)
+spark.sql(f"DESCRIBE {db_name}.delta_patients").show(truncate=False)
 
 # COMMAND ----------
 
@@ -690,22 +669,20 @@ spark.sql("DESCRIBE schema_patients").show(truncate=False)
 # COMMAND ----------
 
 # Demonstrate autoMerge
-auto_path = f"{base_dir}/schema_auto_demo"
-spark.sql(f"DROP TABLE IF EXISTS schema_auto")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_patients_auto")
 
 base_df = spark.createDataFrame([(1, "Base")], ["id", "name"])
-base_df.write.format("delta").mode("overwrite").save(auto_path)
-spark.sql(f"CREATE TABLE IF NOT EXISTS schema_auto USING DELTA LOCATION '{auto_path}'")
+base_df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_patients_auto")
 print("Base table created with columns: id, name")
 
 # Set autoMerge at session level
 spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
 
 expanded_df = spark.createDataFrame([(2, "Expanded", "NewCol")], ["id", "name", "new_column"])
-expanded_df.write.format("delta").mode("append").save(auto_path)
+expanded_df.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_patients_auto")
 print("Appended with new column 'new_column' — autoMerge accepted it!")
 
-spark.sql("SELECT * FROM schema_auto").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_patients_auto").show()
 
 # Reset the config
 spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "false")
@@ -791,24 +768,20 @@ sensor_df.show(5, truncate=False)
 # COMMAND ----------
 
 # Write with traditional Z-Ordering
-cluster_path_zorder = f"{base_dir}/cluster_traditional"
-
 # Write data normally first
-sensor_df.write.format("delta").mode("overwrite").save(cluster_path_zorder)
-
-spark.sql(f"CREATE TABLE IF NOT EXISTS cluster_traditional USING DELTA LOCATION '{cluster_path_zorder}'")
+sensor_df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_cluster_zorder")
 
 print("Before Z-Order OPTIMIZE:")
-detail_before = spark.sql("DESCRIBE DETAIL cluster_traditional").select(
+detail_before = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_cluster_zorder").select(
     "numFiles", "sizeInBytes", "minReaderVersion", "minWriterVersion"
 )
 detail_before.show(truncate=False)
 
 # Apply Z-Order optimization on frequently queried columns
-spark.sql(f"OPTIMIZE cluster_traditional ZORDER BY (sensor_type, device_id)")
+spark.sql(f"OPTIMIZE {db_name}.delta_cluster_zorder ZORDER BY (sensor_type, device_id)")
 
 print("\nAfter Z-Order OPTIMIZE:")
-detail_after = spark.sql("DESCRIBE DETAIL cluster_traditional").select(
+detail_after = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_cluster_zorder").select(
     "numFiles", "sizeInBytes", "minReaderVersion", "minWriterVersion"
 )
 detail_after.show(truncate=False)
@@ -822,24 +795,22 @@ detail_after.show(truncate=False)
 
 # COMMAND ----------
 
-cluster_path_liquid = f"{base_dir}/cluster_liquid"
-spark.sql(f"DROP TABLE IF EXISTS cluster_liquid")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_cluster_liquid")
 
 try:
     spark.sql(f"""
-        CREATE TABLE cluster_liquid
+        CREATE TABLE {db_name}.delta_cluster_liquid
         CLUSTER BY (sensor_type, device_id)
         USING DELTA
-        LOCATION '{cluster_path_liquid}'
     """)
 
     # Insert data
-    sensor_df.write.format("delta").mode("append").save(cluster_path_liquid)
+    sensor_df.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_cluster_liquid")
 
     print("Liquid Clustering table created successfully!")
     print("CLUSTER BY (sensor_type, device_id) enables incremental clustering.")
 
-    spark.sql("DESCRIBE DETAIL cluster_liquid").select(
+    spark.sql(f"DESCRIBE DETAIL {db_name}.delta_cluster_liquid").select(
         "numFiles", "sizeInBytes", "clusteringColumns"
     ).show(truncate=False)
 
@@ -869,20 +840,18 @@ import time
 
 start = time.time()
 result = spark.sql(f"""
-    SELECT COUNT(*) FROM cluster_traditional
+    SELECT COUNT(*) FROM {db_name}.delta_cluster_zorder
     WHERE sensor_type = 'temperature' AND device_id = 'device-0050'
 """).collect()[0][0]
 elapsed = time.time() - start
 print(f"Z-Ordered table — {result} rows found in {elapsed:.3f}s")
 
 # Let's also create an un-optimized table for comparison
-unopt_path = f"{base_dir}/cluster_unoptimized"
-sensor_df.write.format("delta").mode("overwrite").save(unopt_path)
-spark.sql(f"CREATE TABLE IF NOT EXISTS cluster_unoptimized USING DELTA LOCATION '{unopt_path}'")
+sensor_df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_unoptimized")
 
 start = time.time()
 result2 = spark.sql(f"""
-    SELECT COUNT(*) FROM cluster_unoptimized
+    SELECT COUNT(*) FROM {db_name}.delta_unoptimized
     WHERE sensor_type = 'temperature' AND device_id = 'device-0050'
 """).collect()[0][0]
 elapsed2 = time.time() - start
@@ -932,13 +901,11 @@ print("CONCEPT 6: OPTIMIZE & File Compaction")
 print("=" * 60)
 
 # Simulate many small appends to create small files
-opt_path = f"{base_dir}/optimize_demo"
-spark.sql(f"DROP TABLE IF EXISTS optimize_sales")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_optimized")
 
 # Create initial data
 schema_opt = spark.createDataFrame([], "id INT, customer STRING, amount DOUBLE, region STRING")
-schema_opt.write.format("delta").mode("overwrite").save(opt_path)
-spark.sql(f"CREATE TABLE IF NOT EXISTS optimize_sales USING DELTA LOCATION '{opt_path}'")
+schema_opt.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_optimized")
 
 print("Simulating 50 small-batch writes (streaming/micro-batch scenario)...")
 
@@ -951,9 +918,9 @@ for batch in range(50):
         for i in range(10)
     ]
     batch_df = spark.createDataFrame(batch_data, ["id", "customer", "amount", "region"])
-    batch_df.write.format("delta").mode("append").save(opt_path)
+    batch_df.write.format("delta").mode("append").saveAsTable(f"{db_name}.delta_optimized")
 
-total_rows = spark.sql("SELECT COUNT(*) FROM optimize_sales").collect()[0][0]
+total_rows = spark.sql(f"SELECT COUNT(*) FROM {db_name}.delta_optimized").collect()[0][0]
 print(f"Total rows written: {total_rows}")
 
 # COMMAND ----------
@@ -964,7 +931,7 @@ print(f"Total rows written: {total_rows}")
 # COMMAND ----------
 
 print("BEFORE OPTIMIZE — DESCRIBE DETAIL:")
-detail_before_opt = spark.sql("DESCRIBE DETAIL optimize_sales").select(
+detail_before_opt = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_optimized").select(
     "numFiles", "sizeInBytes", "numRecords"
 )
 detail_before_opt.show(truncate=False)
@@ -972,15 +939,12 @@ detail_before_opt.show(truncate=False)
 num_files_before = detail_before_opt.collect()[0]["numFiles"]
 print(f"\nSmall files BEFORE optimize: {num_files_before}")
 
-# Also list the actual files
-print("\nActual files in the table directory:")
-all_files = dbutils.fs.ls(opt_path + "/")
-parquet_files = [f.name for f in all_files if f.name.endswith(".parquet") or f.name.endswith(".snappy.parquet")]
-print(f"Parquet files found: {len(parquet_files)}")
-for f in parquet_files[:10]:
-    print(f"  {f}")
-if len(parquet_files) > 10:
-    print(f"  ... and {len(parquet_files) - 10} more")
+# Use DESCRIBE DETAIL instead of listing files directly
+print("\nFile-level details from DESCRIBE DETAIL:")
+detail_info = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_optimized").collect()[0]
+print(f"  Number of files: {detail_info['numFiles']}")
+print(f"  Size in bytes:   {detail_info['sizeInBytes']}")
+print(f"  Number of records: {detail_info['numRecords']}")
 
 # COMMAND ----------
 
@@ -994,7 +958,7 @@ spark.conf.set("spark.databricks.delta.optimize.maxFileSize", 134217728)  # 128 
 spark.conf.set("spark.databricks.delta.optimize.minFileSize", 33554432)   # 32 MB
 
 print("Running OPTIMIZE to compact small files...\n")
-optimize_result = spark.sql("OPTIMIZE optimize_sales")
+optimize_result = spark.sql(f"OPTIMIZE {db_name}.delta_optimized")
 optimize_result.show(truncate=False)
 
 # COMMAND ----------
@@ -1005,7 +969,7 @@ optimize_result.show(truncate=False)
 # COMMAND ----------
 
 print("AFTER OPTIMIZE — DESCRIBE DETAIL:")
-detail_after_opt = spark.sql("DESCRIBE DETAIL optimize_sales").select(
+detail_after_opt = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_optimized").select(
     "numFiles", "sizeInBytes", "numRecords"
 )
 detail_after_opt.show(truncate=False)
@@ -1015,11 +979,8 @@ files_reduced = num_files_before - num_files_after
 print(f"\nSmall files AFTER optimize: {num_files_after}")
 print(f"Files reduced by: {files_reduced} ({(files_reduced/num_files_before*100):.1f}% reduction)")
 
-# List remaining files
-all_files_after = dbutils.fs.ls(opt_path + "/")
-parquet_files_after = [f.name for f in all_files_after if f.name.endswith(".parquet")]
-print(f"\nRemaining parquet files: {len(parquet_files_after)}")
-print("The small files have been consolidated into fewer, larger files.")
+print("\nThe small files have been consolidated into fewer, larger files.")
+print("Use DESCRIBE DETAIL to inspect file counts at any time.")
 
 # COMMAND ----------
 
@@ -1030,10 +991,10 @@ print("The small files have been consolidated into fewer, larger files.")
 
 # Z-Ordering clusters related data together in the same files
 print("Running OPTIMIZE with ZORDER BY region...")
-opt_zorder_result = spark.sql("OPTIMIZE optimize_sales ZORDER BY (region)")
+opt_zorder_result = spark.sql(f"OPTIMIZE {db_name}.delta_optimized ZORDER BY (region)")
 opt_zorder_result.show(truncate=False)
 
-detail_with_zorder = spark.sql("DESCRIBE DETAIL optimize_sales").select(
+detail_with_zorder = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_optimized").select(
     "numFiles", "sizeInBytes", "numRecords"
 )
 detail_with_zorder.show(truncate=False)
@@ -1053,13 +1014,13 @@ print("Comparing scan performance...\n")
 # Full table scan
 import time as time_mod
 t0 = time_mod.time()
-full_count = spark.sql("SELECT COUNT(*) FROM optimize_sales").collect()[0][0]
+full_count = spark.sql(f"SELECT COUNT(*) FROM {db_name}.delta_optimized").collect()[0][0]
 t1 = time_mod.time()
 print(f"Full scan: {t1 - t0:.4f}s ({full_count} rows)")
 
 # Filtered scan on Z-Ordered column
 t0 = time_mod.time()
-filtered_count = spark.sql("SELECT COUNT(*) FROM optimize_sales WHERE region = 'North'").collect()[0][0]
+filtered_count = spark.sql(f"SELECT COUNT(*) FROM {db_name}.delta_optimized WHERE region = 'North'").collect()[0][0]
 t1 = time_mod.time()
 print(f"Filtered scan (region='North'): {t1 - t0:.4f}s ({filtered_count} rows)")
 
@@ -1106,21 +1067,18 @@ print("CONCEPT 7: VACUUM & Storage Lifecycle")
 print("=" * 60)
 
 # Create a table and perform operations that create orphaned files
-vac_path = f"{base_dir}/vacuum_demo"
-spark.sql(f"DROP TABLE IF EXISTS vacuum_sales")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_vacuum")
 
 vac_data = [(i, f"Product-{i % 10}", random.randint(1, 100), round(random.uniform(10, 500), 2))
             for i in range(1000)]
 vac_df = spark.createDataFrame(vac_data, ["id", "product", "qty", "amount"])
-vac_df.write.format("delta").mode("overwrite").save(vac_path)
-
-spark.sql(f"CREATE TABLE IF NOT EXISTS vacuum_sales USING DELTA LOCATION '{vac_path}'")
-print(f"Initial table: {spark.sql('SELECT COUNT(*) FROM vacuum_sales').collect()[0][0]} rows")
+vac_df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_vacuum")
+print(f"Initial table: {spark.sql(f'SELECT COUNT(*) FROM {db_name}.delta_vacuum').collect()[0][0]} rows")
 
 # Perform operations that create old file versions
-spark.sql("UPDATE vacuum_sales SET amount = amount * 1.1 WHERE id > 500")
-spark.sql("DELETE FROM vacuum_sales WHERE id < 200")
-spark.sql("OPTIMIZE vacuum_sales")
+spark.sql(f"UPDATE {db_name}.delta_vacuum SET amount = amount * 1.1 WHERE id > 500")
+spark.sql(f"DELETE FROM {db_name}.delta_vacuum WHERE id < 200")
+spark.sql(f"OPTIMIZE {db_name}.delta_vacuum")
 
 print("\nPerformed UPDATE, DELETE, and OPTIMIZE — these create unreferenced files.")
 
@@ -1133,20 +1091,17 @@ print("\nPerformed UPDATE, DELETE, and OPTIMIZE — these create unreferenced fi
 
 # DESCRIBE DETAIL shows file-level stats
 print("DESCRIBE DETAIL before VACUUM:")
-detail_vac = spark.sql("DESCRIBE DETAIL vacuum_sales").select(
+detail_vac = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_vacuum").select(
     "numFiles", "sizeInBytes", "numRecords", "lastModified"
 )
 detail_vac.show(truncate=False)
 
-# List actual files
-print("\nFiles in table directory:")
-vac_files = dbutils.fs.ls(vac_path + "/")
-data_files = [f for f in vac_files if f.name.endswith(".parquet")]
-for f in data_files[:10]:
-    print(f"  {f.name:<50} {f.size:>10} bytes")
-if len(data_files) > 10:
-    print(f"  ... and {len(data_files) - 10} more files")
-print(f"Total data files in directory: {len(data_files)}")
+# Use DESCRIBE DETAIL for file count information
+detail_info = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_vacuum").collect()[0]
+print(f"\nTable storage summary:")
+print(f"  Number of files: {detail_info['numFiles']}")
+print(f"  Size in bytes:   {detail_info['sizeInBytes']}")
+print(f"  Number of records: {detail_info['numRecords']}")
 
 # COMMAND ----------
 
@@ -1157,13 +1112,13 @@ print(f"Total data files in directory: {len(data_files)}")
 
 # Show current retention settings
 print("Retention-related properties:")
-retention_props = spark.sql("SHOW TBLPROPERTIES vacuum_sales").filter(
+retention_props = spark.sql(f"SHOW TBLPROPERTIES {db_name}.delta_vacuum").filter(
     "key like '%retention%' OR key like '%logRetention%'"
 )
 retention_props.show(truncate=False)
 
 print("\nCurrent history (number of versions):")
-history_vac = spark.sql("DESCRIBE HISTORY vacuum_sales")
+history_vac = spark.sql(f"DESCRIBE HISTORY {db_name}.delta_vacuum")
 print(f"Total versions: {history_vac.count()}")
 history_vac.select("version", "operation", "timestamp").show(truncate=False)
 
@@ -1179,7 +1134,7 @@ history_vac.select("version", "operation", "timestamp").show(truncate=False)
 # Dry run first — safe preview
 print("VACUUM DRY RUN (preview mode — no files deleted):")
 try:
-    spark.sql("VACUUM vacuum_sales DRY RUN").show(truncate=False)
+    spark.sql(f"VACUUM {db_name}.delta_vacuum DRY RUN").show(truncate=False)
     print("\nDry run completed. No files were actually deleted.")
 except Exception as e:
     print(f"DRY RUN not supported in this version: {str(e)[:100]}")
@@ -1193,17 +1148,19 @@ except Exception as e:
 
 # COMMAND ----------
 
-# Count files before VACUUM
-files_before = len(dbutils.fs.ls(vac_path + "/"))
-print(f"Total files/directories before VACUUM: {files_before}")
+# Use DESCRIBE DETAIL to check file count before VACUUM
+detail_before_vac = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_vacuum").collect()[0]
+files_before = detail_before_vac["numFiles"]
+print(f"Number of files before VACUUM: {files_before}")
 
 # Run VACUUM with RETAIN 0 HOURS for demo (in production, keep the default 168 hours / 7 days)
 print("\nRunning VACUUM with RETAIN 0 HOURS (for demo only)...")
-spark.sql("VACUUM vacuum_sales RETAIN 0 HOURS")
+spark.sql(f"VACUUM {db_name}.delta_vacuum RETAIN 0 HOURS")
 
-# Count files after VACUUM
-files_after = len(dbutils.fs.ls(vac_path + "/"))
-print(f"Total files/directories after VACUUM: {files_after}")
+# Use DESCRIBE DETAIL to check file count after VACUUM
+detail_after_vac = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_vacuum").collect()[0]
+files_after = detail_after_vac["numFiles"]
+print(f"Number of files after VACUUM: {files_after}")
 print(f"Files removed: {files_before - files_after}")
 
 # COMMAND ----------
@@ -1217,11 +1174,11 @@ print(f"Files removed: {files_before - files_after}")
 print("Attempting time travel after VACUUM (0 hour retention)...")
 
 # Get old version numbers
-old_versions = spark.sql("DESCRIBE HISTORY vacuum_sales").select("version").collect()
+old_versions = spark.sql(f"DESCRIBE HISTORY {db_name}.delta_vacuum").select("version").collect()
 if len(old_versions) > 1:
     try:
         old_version = old_versions[1][0]  # Version 1
-        spark.sql(f"SELECT COUNT(*) FROM vacuum_sales VERSION AS OF {old_version}").show()
+        spark.sql(f"SELECT COUNT(*) FROM {db_name}.delta_vacuum VERSION AS OF {old_version}").show()
         print(f"Time travel to version {old_version} succeeded (files still present).")
     except Exception as e:
         print(f"Time travel to version {old_version} FAILED: {str(e)[:200]}")
@@ -1229,7 +1186,7 @@ if len(old_versions) > 1:
         print("This is why you should keep a reasonable retention period in production!")
 
 # Current table is still intact
-print(f"\nCurrent table data is intact: {spark.sql('SELECT COUNT(*) FROM vacuum_sales').collect()[0][0]} rows")
+print(f"\nCurrent table data is intact: {spark.sql(f'SELECT COUNT(*) FROM {db_name}.delta_vacuum').collect()[0][0]} rows")
 
 # COMMAND ----------
 
@@ -1272,8 +1229,7 @@ print("CONCEPT 8: Change Data Feed (CDF)")
 print("=" * 60)
 
 # Create a table with CDF enabled
-cdf_path = f"{base_dir}/cdf_demo"
-spark.sql(f"DROP TABLE IF EXISTS cdf_products")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_cdf")
 
 # Enable CDF on the table
 cdf_init_data = [
@@ -1287,13 +1243,11 @@ cdf_df = spark.createDataFrame(cdf_init_data, ["product_id", "name", "category",
 
 cdf_df.write.format("delta").mode("overwrite") \
     .option("delta.enableChangeDataFeed", "true") \
-    .save(cdf_path)
-
-spark.sql(f"CREATE TABLE IF NOT EXISTS cdf_products USING DELTA LOCATION '{cdf_path}'")
+    .saveAsTable(f"{db_name}.delta_cdf")
 
 print("CDF table created with change data feed ENABLED.")
-print(f"Initial data: {spark.sql('SELECT COUNT(*) FROM cdf_products').collect()[0][0]} rows")
-spark.sql("SELECT * FROM cdf_products").show()
+print(f"Initial data: {spark.sql(f'SELECT COUNT(*) FROM {db_name}.delta_cdf').collect()[0][0]} rows")
+spark.sql(f"SELECT * FROM {db_name}.delta_cdf").show()
 
 # COMMAND ----------
 
@@ -1303,28 +1257,28 @@ spark.sql("SELECT * FROM cdf_products").show()
 # COMMAND ----------
 
 # Version 1: INSERT new products
-spark.sql("""
-    INSERT INTO cdf_products VALUES
+spark.sql(f"""
+    INSERT INTO {db_name}.delta_cdf VALUES
         (6, 'Widget C', 'Gadgets', 19.99, 75),
         (7, 'Washer M6', 'Hardware', 0.25, 2000)
 """)
 
 # Version 2: UPDATE prices (increase by 10%)
-spark.sql("UPDATE cdf_products SET price = price * 1.10 WHERE category = 'Gadgets'")
+spark.sql(f"UPDATE {db_name}.delta_cdf SET price = price * 1.10 WHERE category = 'Gadgets'")
 
 # Version 3: UPDATE stock levels
-spark.sql("UPDATE cdf_products SET stock = stock + 50 WHERE product_id IN (1, 2)")
+spark.sql(f"UPDATE {db_name}.delta_cdf SET stock = stock + 50 WHERE product_id IN (1, 2)")
 
 # Version 4: DELETE a product
-spark.sql("DELETE FROM cdf_products WHERE product_id = 3")
+spark.sql(f"DELETE FROM {db_name}.delta_cdf WHERE product_id = 3")
 
 # Show current table state
 print("Current table state (after all changes):")
-spark.sql("SELECT * FROM cdf_products ORDER BY product_id").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_cdf ORDER BY product_id").show()
 
 # Show history
 print("\nTable history:")
-spark.sql("DESCRIBE HISTORY cdf_products").select("version", "operation", "operationMetrics", "timestamp").show(truncate=False)
+spark.sql(f"DESCRIBE HISTORY {db_name}.delta_cdf").select("version", "operation", "operationMetrics", "timestamp").show(truncate=False)
 
 # COMMAND ----------
 
@@ -1337,12 +1291,12 @@ print("\n=== Reading Change Data Feed ===")
 
 # Read all changes from version 0 to the latest
 print("All CDF changes (version 0 to latest):")
-cdf_all = spark.sql("SELECT * FROM table_changes('cdf_products', 0)")
+cdf_all = spark.sql(f"SELECT * FROM table_changes('{db_name}.delta_cdf', 0)")
 cdf_all.select("_change_type", "_commit_version", "_commit_timestamp", "product_id", "name", "price", "stock").show(truncate=False)
 
 # Read changes from a specific version range
 print("\nCDF changes from version 1 to version 3:")
-cdf_range = spark.sql("SELECT * FROM table_changes('cdf_products', 1, 3)")
+cdf_range = spark.sql(f"SELECT * FROM table_changes('{db_name}.delta_cdf', 1, 3)")
 cdf_range.select("_change_type", "_commit_version", "product_id", "name", "price", "stock").show(truncate=False)
 
 # COMMAND ----------
@@ -1354,18 +1308,18 @@ cdf_range.select("_change_type", "_commit_version", "product_id", "name", "price
 
 # Show distribution of change types
 print("Change type distribution:")
-spark.sql("""
+spark.sql(f"""
     SELECT _change_type, COUNT(*) AS change_count
-    FROM table_changes('cdf_products', 0)
+    FROM table_changes('{db_name}.delta_cdf', 0)
     GROUP BY _change_type
     ORDER BY _change_type
 """).show()
 
 # Demonstrate the preimage/postimage for UPDATEs
 print("\nUPDATE change details (update_preimage + update_postimage):")
-cdf_updates = spark.sql("""
+cdf_updates = spark.sql(f"""
     SELECT _change_type, _commit_version, product_id, name, price, stock
-    FROM table_changes('cdf_products', 0)
+    FROM table_changes('{db_name}.delta_cdf', 0)
     WHERE _change_type LIKE 'update_%'
     ORDER BY _commit_version, product_id, _change_type
 """)
@@ -1387,7 +1341,7 @@ print(f"Last processed version: {processed_version}")
 print(f"Reading changes from version {processed_version} to latest...")
 
 new_changes = spark.sql(f"""
-    SELECT * FROM table_changes('cdf_products', {processed_version})
+    SELECT * FROM table_changes('{db_name}.delta_cdf', {processed_version})
 """)
 
 print(f"New changes to process: {new_changes.count()} rows")
@@ -1404,7 +1358,7 @@ for change_type in ["insert", "update_preimage", "update_postimage", "delete"]:
         print(f"  {change_type}: {cnt} rows")
 
 # Update our "processed" tracker
-latest_version = spark.sql("SELECT MAX(version) AS max_ver FROM (DESCRIBE HISTORY cdf_products)").collect()[0][0]
+latest_version = spark.sql(f"SELECT MAX(version) AS max_ver FROM (DESCRIBE HISTORY {db_name}.delta_cdf)").collect()[0][0]
 print(f"\nUpdated processed version to: {latest_version}")
 print("Next incremental run will read from version", latest_version)
 
@@ -1453,28 +1407,27 @@ print("=" * 60)
 # First, demonstrate the COST of DELETE without deletion vectors (traditional behavior)
 # by running a DELETE and observing how files are rewritten
 
-dv_path_traditional = f"{base_dir}/dv_traditional"
-spark.sql(f"DROP TABLE IF EXISTS dv_traditional")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_dv_traditional")
 
 # Create moderate-size data
 dv_data = [(i, f"User-{i%100}", f"Event-{i%5}", random.randint(1, 10000))
            for i in range(5000)]
 dv_df = spark.createDataFrame(dv_data, ["event_id", "user_id", "event_type", "value"])
-dv_df.write.format("delta").mode("overwrite").save(dv_path_traditional)
+dv_df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_dv_traditional")
 
-spark.sql(f"CREATE TABLE IF NOT EXISTS dv_traditional USING DELTA LOCATION '{dv_path_traditional}'")
-
-# Count files before DELETE
-files_before_del = len([f for f in dbutils.fs.ls(dv_path_traditional + "/") if f.name.endswith(".parquet")])
-print(f"Parquet files before DELETE: {files_before_del}")
+# Count files before DELETE using DESCRIBE DETAIL
+detail_before = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_dv_traditional").collect()[0]
+files_before_del = detail_before["numFiles"]
+print(f"Data files before DELETE: {files_before_del}")
 
 # Run a small DELETE
-spark.sql("DELETE FROM dv_traditional WHERE event_id < 100")
+spark.sql(f"DELETE FROM {db_name}.delta_dv_traditional WHERE event_id < 100")
 print("DELETE completed (traditional — files were rewritten).")
 
 # Count files after DELETE
-files_after_del = len([f for f in dbutils.fs.ls(dv_path_traditional + "/") if f.name.endswith(".parquet")])
-print(f"Parquet files after DELETE: {files_after_del}")
+detail_after = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_dv_traditional").collect()[0]
+files_after_del = detail_after["numFiles"]
+print(f"Data files after DELETE: {files_after_del}")
 
 # EXPLAIN: Without deletion vectors, files containing deleted rows are rewritten
 print(f"\nINSIGHT: Without deletion vectors, {files_before_del} files were touched")
@@ -1489,8 +1442,7 @@ print("For large tables, this rewrite cost is enormous.")
 # COMMAND ----------
 
 # Try to enable deletion vectors
-dv_path = f"{base_dir}/dv_demo"
-spark.sql(f"DROP TABLE IF EXISTS dv_trades")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_dv_enabled")
 
 dv_init_data = [
     (1, "AAPL", "BUY", 100, 175.50),
@@ -1508,22 +1460,20 @@ try:
     # Enable deletion vectors
     dv_init_df.write.format("delta").mode("overwrite") \
         .option("delta.enableDeletionVectors", "true") \
-        .save(dv_path)
-
-    spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS dv_trades USING DELTA LOCATION '{dv_path}'
-    """)
+        .saveAsTable(f"{db_name}.delta_dv_enabled")
 
     # Verify property
-    props = spark.sql("SHOW TBLPROPERTIES dv_trades").filter("key = 'delta.enableDeletionVectors'")
+    props = spark.sql(f"SHOW TBLPROPERTIES {db_name}.delta_dv_enabled").filter("key = 'delta.enableDeletionVectors'")
     if props.count() > 0:
         has_dv = props.collect()[0]["value"] == "true"
         print(f"Deletion Vectors enabled: {has_dv}")
     else:
+        has_dv = False
         print("Deletion Vectors property not found — may not be supported in this environment.")
 
 except Exception as e:
     error_msg = str(e)
+    has_dv = False
     print(f"Deletion Vectors not supported in this environment: {error_msg[:200]}")
     print("\nDeletion Vectors require:")
     print("  - delta.minReaderVersion >= 3")
@@ -1532,8 +1482,7 @@ except Exception as e:
     print("\nCreating fallback table for architectural explanation...")
     
     # Fallback: create without DVs
-    dv_init_df.write.format("delta").mode("overwrite").save(dv_path)
-    spark.sql(f"CREATE TABLE IF NOT EXISTS dv_trades USING DELTA LOCATION '{dv_path}'")
+    dv_init_df.write.format("delta").mode("overwrite").saveAsTable(f"{db_name}.delta_dv_enabled")
 
 # COMMAND ----------
 
@@ -1562,24 +1511,26 @@ except Exception as e:
 # COMMAND ----------
 
 print("Current state of trades table:")
-spark.sql("SELECT * FROM dv_trades ORDER BY trade_id").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_dv_enabled ORDER BY trade_id").show()
 
-# Count files before the operation
-files_before = len([f for f in dbutils.fs.ls(dv_path + "/") if f.name.endswith(".parquet")])
+# Count files before the operation using DESCRIBE DETAIL
+detail_before_dv = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_dv_enabled").collect()[0]
+files_before = detail_before_dv["numFiles"]
 
 # Perform DELETE
-deleted_count = spark.sql("SELECT COUNT(*) FROM dv_trades WHERE action = 'SELL'").collect()[0][0]
+deleted_count = spark.sql(f"SELECT COUNT(*) FROM {db_name}.delta_dv_enabled WHERE action = 'SELL'").collect()[0][0]
 print(f"\nDeleting {deleted_count} trades where action = 'SELL'...")
-spark.sql("DELETE FROM dv_trades WHERE action = 'SELL'")
+spark.sql(f"DELETE FROM {db_name}.delta_dv_enabled WHERE action = 'SELL'")
 
 # Count files after
-files_after = len([f for f in dbutils.fs.ls(dv_path + "/") if f.name.endswith(".parquet")])
+detail_after_dv = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_dv_enabled").collect()[0]
+files_after = detail_after_dv["numFiles"]
 
 print(f"\nFiles before DELETE: {files_before}")
 print(f"Files after DELETE: {files_after}")
 
 # If DVs are working, files won't change much; if traditional, files are rewritten
-if has_dv if 'has_dv' in dir() else False:
+if has_dv:
     print("\nWith Deletion Vectors: Files NOT rewritten (soft-delete markers used).")
     print("The rows are logically deleted but still physically present in files.")
     print("OPTIMIZE will later physically remove them and reclaim space.")
@@ -1589,7 +1540,7 @@ else:
 
 # Verify data is gone from the logical view
 print("\nAfter DELETE (logical view — deleted rows are gone):")
-spark.sql("SELECT * FROM dv_trades ORDER BY trade_id").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_dv_enabled ORDER BY trade_id").show()
 
 # COMMAND ----------
 
@@ -1599,7 +1550,7 @@ spark.sql("SELECT * FROM dv_trades ORDER BY trade_id").show()
 # COMMAND ----------
 
 try:
-    detail_dv = spark.sql("DESCRIBE DETAIL dv_trades").select(
+    detail_dv = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_dv_enabled").select(
         "numDeletionVectors", "numFiles", "numRecords"
     )
     detail_dv.show(truncate=False)
@@ -1653,8 +1604,7 @@ print("CONCEPT 10: Delta Table Properties & Configuration")
 print("=" * 60)
 
 # Create a fully configured table to explore properties
-props_path = f"{base_dir}/props_demo"
-spark.sql(f"DROP TABLE IF EXISTS props_table")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_props")
 
 props_data = [(1, "Alice", "HR", 75000), (2, "Bob", "Engineering", 95000)]
 props_df = spark.createDataFrame(props_data, ["id", "name", "dept", "salary"])
@@ -1662,9 +1612,7 @@ props_df = spark.createDataFrame(props_data, ["id", "name", "dept", "salary"])
 props_df.write.format("delta").mode("overwrite") \
     .option("delta.autoOptimize.optimizeWrite", "true") \
     .option("delta.autoOptimize.autoCompact", "true") \
-    .save(props_path)
-
-spark.sql(f"CREATE TABLE IF NOT EXISTS props_table USING DELTA LOCATION '{props_path}'")
+    .saveAsTable(f"{db_name}.delta_props")
 
 # COMMAND ----------
 
@@ -1674,7 +1622,7 @@ spark.sql(f"CREATE TABLE IF NOT EXISTS props_table USING DELTA LOCATION '{props_
 # COMMAND ----------
 
 print("All table properties (SHOW TBLPROPERTIES):")
-spark.sql("SHOW TBLPROPERTIES props_table").show(100, truncate=False)
+spark.sql(f"SHOW TBLPROPERTIES {db_name}.delta_props").show(100, truncate=False)
 
 # COMMAND ----------
 
@@ -1693,7 +1641,7 @@ print("")
 print("Use when: You have streaming or micro-batch workloads.")
 print("Trade-off: Slight increase in write latency for better read performance.")
 
-props_opt = spark.sql("SHOW TBLPROPERTIES props_table").filter("key = 'delta.autoOptimize.optimizeWrite'")
+props_opt = spark.sql(f"SHOW TBLPROPERTIES {db_name}.delta_props").filter("key = 'delta.autoOptimize.optimizeWrite'")
 props_opt.show(truncate=False)
 
 # === Property 2: autoOptimize.autoCompact ===
@@ -1701,7 +1649,7 @@ print("\nProperty: delta.autoOptimize.autoCompact")
 print("After each write, Delta checks if small files exist and automatically compacts them.")
 print("This is like running OPTIMIZE automatically after each write — no manual maintenance.")
 print("Use when: You want hands-free file management.")
-props_ac = spark.sql("SHOW TBLPROPERTIES props_table").filter("key = 'delta.autoOptimize.autoCompact'")
+props_ac = spark.sql(f"SHOW TBLPROPERTIES {db_name}.delta_props").filter("key = 'delta.autoOptimize.autoCompact'")
 props_ac.show(truncate=False)
 
 # COMMAND ----------
@@ -1716,15 +1664,15 @@ print("Protocol Versions")
 print("=" * 60)
 
 # DESCRIBE EXTENDED shows protocol versions
-print("DESCRIBE EXTENDED props_table (truncated to show protocol):")
-extended = spark.sql("DESCRIBE EXTENDED props_table").filter(
+print("DESCRIBE EXTENDED props_table (truncated to show protocol):")  
+extended = spark.sql(f"DESCRIBE EXTENDED {db_name}.delta_props").filter(
     "col_name IN ('Provider', 'Type', 'Location', 'Table Properties')"
 )
 extended.show(truncate=False)
 
 # More useful: DESCRIBE DETAIL
 print("\nDESCRIBE DETAIL (includes minReaderVersion, minWriterVersion):")
-detail_props = spark.sql("DESCRIBE DETAIL props_table").select(
+detail_props = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_props").select(
     "format", "minReaderVersion", "minWriterVersion", "properties"
 )
 detail_props.show(truncate=False)
@@ -1751,8 +1699,7 @@ print("=" * 60)
 print("Column Mapping: Renaming Columns Without Rewriting Data")
 print("=" * 60)
 
-colmap_path = f"{base_dir}/colmap_demo"
-spark.sql(f"DROP TABLE IF EXISTS colmap_table")
+spark.sql(f"DROP TABLE IF EXISTS {db_name}.delta_colmap")
 
 # Create table WITH column mapping enabled (uses 'name' mode)
 colmap_data = [(1, "Alice", "HR"), (2, "Bob", "Engineering")]
@@ -1762,24 +1709,22 @@ colmap_df.write.format("delta").mode("overwrite") \
     .option("delta.columnMapping.mode", "name") \
     .option("delta.minReaderVersion", "2") \
     .option("delta.minWriterVersion", "5") \
-    .save(colmap_path)
-
-spark.sql(f"CREATE TABLE IF NOT EXISTS colmap_table USING DELTA LOCATION '{colmap_path}'")
+    .saveAsTable(f"{db_name}.delta_colmap")
 
 print("Table created with column mapping mode = 'name'")
 
 # Show original names
 print("\nOriginal schema:")
-spark.sql("DESCRIBE colmap_table").show()
+spark.sql(f"DESCRIBE {db_name}.delta_colmap").show()
 
 # Rename a column (this is a metadata-only operation with column mapping!)
 print("\nRenaming column 'full_name' to 'employee_name'...")
-spark.sql("ALTER TABLE colmap_table RENAME COLUMN full_name TO employee_name")
+spark.sql(f"ALTER TABLE {db_name}.delta_colmap RENAME COLUMN full_name TO employee_name")
 
 print("Column renamed (no data rewritten — metadata-only operation):")
-spark.sql("DESCRIBE colmap_table").show()
+spark.sql(f"DESCRIBE {db_name}.delta_colmap").show()
 
-spark.sql("SELECT * FROM colmap_table").show()
+spark.sql(f"SELECT * FROM {db_name}.delta_colmap").show()
 
 print("\nColumn mapping modes:")
 print("  'none' — Default. Column names are physical (in Parquet). Cannot rename without rewrite.")
@@ -1829,29 +1774,29 @@ for name, default_val, description in properties_summary:
 
 # Set and verify properties
 print("Setting table properties...")
-spark.sql("ALTER TABLE props_table SET TBLPROPERTIES ('delta.appendOnly' = 'true')")
+spark.sql(f"ALTER TABLE {db_name}.delta_props SET TBLPROPERTIES ('delta.appendOnly' = 'true')")
 
 print("\nVerifying properties:")
-spark.sql("SHOW TBLPROPERTIES props_table").filter(
+spark.sql(f"SHOW TBLPROPERTIES {db_name}.delta_props").filter(
     "key IN ('delta.appendOnly', 'delta.autoOptimize.optimizeWrite', 'delta.autoOptimize.autoCompact')"
 ).show(truncate=False)
 
 # Test appendOnly — should succeed for INSERT
 print("\nTesting appendOnly = true: INSERT should work...")
-spark.sql("INSERT INTO props_table VALUES (3, 'Charlie', 'Finance', 85000)")
+spark.sql(f"INSERT INTO {db_name}.delta_props VALUES (3, 'Charlie', 'Finance', 85000)")
 print("INSERT succeeded (appends are allowed).")
 
 # Test appendOnly — DELETE should FAIL
 print("\nTesting appendOnly = true: DELETE should fail...")
 try:
-    spark.sql("DELETE FROM props_table WHERE id = 1")
+    spark.sql(f"DELETE FROM {db_name}.delta_props WHERE id = 1")
     print("DELETE succeeded (unexpected — appendOnly should block this)")
 except Exception as e:
     print(f"DELETE correctly blocked: {str(e)[:150]}")
     print("appendOnly = true prevents accidental data deletions.")
 
 # Reset for further use
-spark.sql("ALTER TABLE props_table SET TBLPROPERTIES ('delta.appendOnly' = 'false')")
+spark.sql(f"ALTER TABLE {db_name}.delta_props SET TBLPROPERTIES ('delta.appendOnly' = 'false')")
 
 # COMMAND ----------
 
@@ -1861,10 +1806,10 @@ spark.sql("ALTER TABLE props_table SET TBLPROPERTIES ('delta.appendOnly' = 'fals
 # COMMAND ----------
 
 print("DESCRIBE DETAIL — Complete table metadata at a glance:")
-spark.sql("DESCRIBE DETAIL props_table").show(truncate=False)
+spark.sql(f"DESCRIBE DETAIL {db_name}.delta_props").show(truncate=False)
 
 # Highlight important fields
-detail = spark.sql("DESCRIBE DETAIL props_table").collect()[0]
+detail = spark.sql(f"DESCRIBE DETAIL {db_name}.delta_props").collect()[0]
 print("\nKey metrics extracted from DESCRIBE DETAIL:")
 print(f"  Location:           {detail['location']}")
 print(f"  Format:             {detail['format']}")
@@ -1983,7 +1928,13 @@ print("=" * 60)
 print("NOTEBOOK COMPLETE")
 print("=" * 60)
 print("\nAll 10 Delta Lake concepts have been demonstrated.")
-print("\nCleanup note: All tables were created under /tmp/delta_lake_fundamentals/")
-print("These will persist until you manually remove them or the cluster restarts.")
+print("\nCleanup note: All tables were created as managed tables in the 'default' database.")
+print("These will persist until you manually drop them or the metastore is reset.")
 print("\nTo clean up manually, run:")
-print("  dbutils.fs.rm('/tmp/delta_lake_fundamentals', recurse=True)")
+for t in ["delta_orders_acid", "delta_orders_acid_fail", "delta_time_travel",
+          "delta_tt_demo", "delta_patients", "delta_patients_auto",
+          "delta_cluster_zorder", "delta_cluster_liquid", "delta_unoptimized",
+          "delta_optimized", "delta_vacuum", "delta_cdf",
+          "delta_dv_traditional", "delta_dv_enabled", "delta_props",
+          "delta_colmap"]:
+    print(f"  spark.sql('DROP TABLE IF EXISTS {db_name}.{t}')")

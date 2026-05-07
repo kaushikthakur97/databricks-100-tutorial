@@ -1,44 +1,45 @@
-# 08 — Lakeflow Declarative Pipelines (Concepts #71–#80)
+ # 08 — Lakeflow Declarative Pipelines (Concepts #71–#80)
 
-## Overview
+ ## Overview
 
-Lakeflow Declarative Pipelines (formerly **Delta Live Tables / DLT**) is Databricks' declarative ETL
-framework for building reliable, maintainable, and testable data pipelines. It handles
-orchestration, error handling, quality enforcement, and state management automatically.
+ Lakeflow Declarative Pipelines (formerly **Delta Live Tables / DLT**) is Databricks' declarative ETL
+ framework for building reliable, maintainable, and testable data pipelines. It handles
+ orchestration, error handling, quality enforcement, and state management automatically.
 
-**IMPORTANT**: Lakeflow / DLT pipelines are **NOT available in Databricks Community Edition**.
-This notebook therefore uses a dual approach throughout:
+ **IMPORTANT**: Lakeflow / DLT pipelines are **NOT available in Databricks Community Edition**.
+ This notebook therefore uses a dual approach throughout:
 
-- **"With Lakeflow"** blocks (commented — show the declarative syntax)
-- **"Manual Equivalent (Community Edition)"** blocks (executable — replicate the same logic)
+ - **"With Lakeflow"** blocks (commented — show the declarative syntax)
+ - **"Manual Equivalent (Community Edition)"** blocks (executable — replicate the same logic)
 
-### Concepts Covered
-| # | Concept | Difficulty |
-|---|---------|------------|
-| 71 | Python vs. SQL Pipeline Syntax | Easy |
-| 72 | Streaming Tables vs. Materialized Views | Medium |
-| 73 | Expectations (Data Quality Rules) | Medium |
-| 74 | Pipeline Development & Testing | Medium |
-| 75 | Pipeline Monitoring & Event Log | Medium |
-| 76 | Pipeline Modes: Triggered vs. Continuous | Medium |
-| 77 | CDC Processing: AUTO CDC INTO | Hard |
-| 78 | Error Handling & Dead Letter Patterns | Hard |
-| 79 | Pipeline Parameters & Configuration | Hard |
-| 80 | Multi-Pipeline Architecture | Hard |
+ ### Concepts Covered
+ | # | Concept | Difficulty |
+ |---|---------|------------|
+ | 71 | Python vs. SQL Pipeline Syntax | Easy |
+ | 72 | Streaming Tables vs. Materialized Views | Medium |
+ | 73 | Expectations (Data Quality Rules) | Medium |
+ | 74 | Pipeline Development & Testing | Medium |
+ | 75 | Pipeline Monitoring & Event Log | Medium |
+ | 76 | Pipeline Modes: Triggered vs. Continuous | Medium |
+ | 77 | CDC Processing: AUTO CDC INTO | Hard |
+ | 78 | Error Handling & Dead Letter Patterns | Hard |
+ | 79 | Pipeline Parameters & Configuration | Hard |
+ | 80 | Multi-Pipeline Architecture | Hard |
 
-### Dataset
-We generate **synthetic retail sales data** throughout — orders, customers, products, and CDC
-change events — stored in Delta Lake tables for realistic pipeline scenarios.
+ ### Dataset
+ We generate **synthetic retail sales data** throughout — orders, customers, products, and CDC
+ change events — stored in Delta Lake tables for realistic pipeline scenarios.
 
 ```python
 
 ```
-## Setup — Environment & Synthetic Data
 
-We create the three core datasets used across all ten concepts:
-- **raw_orders** — streaming source of retail orders
-- **customers** — customer dimension table
-- **products** — product dimension table
+ ## Setup — Environment & Synthetic Data
+
+ We create the three core datasets used across all ten concepts:
+ - **raw_orders** — streaming source of retail orders
+ - **customers** — customer dimension table
+ - **products** — product dimension table
 
 ```python
 
@@ -62,9 +63,11 @@ spark = SparkSession.builder \
 
 spark.sql("SET spark.databricks.delta.schema.autoMerge.enabled = true")
 
-BASE_PATH = "/tmp/lakeflow_demo"
-os.makedirs(BASE_PATH, exist_ok=True)
-print(f"Working directory: {BASE_PATH}")
+DB = "default"
+for t in spark.catalog.listTables(DB):
+    if t.name.startswith("lakeflow_"):
+        spark.sql(f"DROP TABLE IF EXISTS {DB}.{t.name}")
+print(f"Database: {DB}")
 print(f"Spark version: {spark.version}")
 
 ```
@@ -72,7 +75,8 @@ print(f"Spark version: {spark.version}")
 ```python
 
 ```
-### Generate Synthetic Retail Data
+
+ ### Generate Synthetic Retail Data
 
 ```python
 
@@ -94,8 +98,8 @@ products_data = [(
 ) for pid in PRODUCT_IDS]
 
 products_df = spark.createDataFrame(products_data, schema=["product_id", "name", "category", "price", "active"])
-products_df.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/products")
-print(f"[OK] Products: {products_df.count()} rows → {BASE_PATH}/products")
+products_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_products")
+print(f"[OK] Products: {products_df.count()} rows → {DB}.lakeflow_products")
 
 # --- Customers Dimension ---
 customers_data = [(
@@ -107,8 +111,8 @@ customers_data = [(
 ) for cid in CUSTOMER_IDS]
 
 customers_df = spark.createDataFrame(customers_data, schema=["customer_id", "email", "tier", "region", "signup_date"])
-customers_df.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/customers")
-print(f"[OK] Customers: {customers_df.count()} rows → {BASE_PATH}/customers")
+customers_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_customers")
+print(f"[OK] Customers: {customers_df.count()} rows → {DB}.lakeflow_customers")
 
 # --- Raw Orders (append-friendly source) ---
 def generate_orders(num_rows=200):
@@ -143,13 +147,13 @@ batch1 = generate_orders(100)
 batch2 = generate_orders(100)
 
 orders_df = spark.createDataFrame(batch1 + batch2, schema=order_schema)
-orders_df.write.format("delta").mode("append").save(f"{BASE_PATH}/raw_orders")
-print(f"[OK] Raw Orders: {orders_df.count()} rows → {BASE_PATH}/raw_orders")
+orders_df.write.format("delta").mode("append").saveAsTable(f"{DB}.lakeflow_raw_orders")
+print(f"[OK] Raw Orders: {orders_df.count()} rows → {DB}.lakeflow_raw_orders")
 
 # --- Refresh all tables ---
-spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW products  AS SELECT * FROM delta.`{BASE_PATH}/products`")
-spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW customers AS SELECT * FROM delta.`{BASE_PATH}/customers`")
-spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW raw_orders AS SELECT * FROM delta.`{BASE_PATH}/raw_orders`")
+spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW products  AS SELECT * FROM {DB}.lakeflow_products")
+spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW customers AS SELECT * FROM {DB}.lakeflow_customers")
+spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW raw_orders AS SELECT * FROM {DB}.lakeflow_raw_orders")
 print("\nAll datasets ready.")
 
 ```
@@ -157,31 +161,33 @@ print("\nAll datasets ready.")
 ```python
 
 ```
----
-## Concept 71 — Python vs. SQL Pipeline Syntax
 
-**Difficulty: Easy**
+ ---
+ ## Concept 71 — Python vs. SQL Pipeline Syntax
 
-Lakeflow supports two equivalent syntaxes for defining pipelines. The choice is about **team
-preference**, not capability — both produce identical execution plans.
+ **Difficulty: Easy**
 
-| Aspect | SQL Syntax | Python Syntax |
-|--------|------------|----------------|
-| Streaming table | `CREATE STREAMING TABLE` | `@table` decorator |
-| Materialized view | `CREATE MATERIALIZED VIEW` | `@materialized_view` decorator |
-| Temporary view | `CREATE TEMPORARY LIVE VIEW` | `@temporary_view` decorator |
-| Expectations | Inline constraints | `expect()` / `expect_or_drop()` / `expect_or_fail()` |
-| Legacy import | — | `import dlt` (still works) |
+ Lakeflow supports two equivalent syntaxes for defining pipelines. The choice is about **team
+ preference**, not capability — both produce identical execution plans.
 
-### Rule of Thumb
-- **SQL preferred** when: analysts write pipelines, SQL logic is straightforward
-- **Python preferred** when: complex transformations, ML feature engineering, testing with pytest
-- Both can be **mixed** in the same pipeline notebook
+ | Aspect | SQL Syntax | Python Syntax |
+ |--------|------------|----------------|
+ | Streaming table | `CREATE STREAMING TABLE` | `@table` decorator |
+ | Materialized view | `CREATE MATERIALIZED VIEW` | `@materialized_view` decorator |
+ | Temporary view | `CREATE TEMPORARY LIVE VIEW` | `@temporary_view` decorator |
+ | Expectations | Inline constraints | `expect()` / `expect_or_drop()` / `expect_or_fail()` |
+ | Legacy import | — | `import dlt` (still works) |
+
+ ### Rule of Thumb
+ - **SQL preferred** when: analysts write pipelines, SQL logic is straightforward
+ - **Python preferred** when: complex transformations, ML feature engineering, testing with pytest
+ - Both can be **mixed** in the same pipeline notebook
 
 ```python
 
 ```
-### Python Syntax (Lakeflow / DLT) — Commented Reference
+
+ ### Python Syntax (Lakeflow / DLT) — Commented Reference
 
 ```python
 
@@ -220,8 +226,7 @@ preference**, not capability — both produce identical execution plans.
 
 bronze_orders = (
     spark.readStream
-         .format("delta")
-         .load(f"{BASE_PATH}/raw_orders")
+         .table(f"{DB}.lakeflow_raw_orders")
          .withColumn("ingested_at", F.current_timestamp())
 )
 
@@ -229,28 +234,28 @@ bronze_query = (
     bronze_orders.writeStream
     .format("delta")
     .outputMode("append")
-    .option("checkpointLocation", f"{BASE_PATH}/_checkpoint/bronze")
+    .option("checkpointLocation", "/lakeflow_demo/_checkpoint/bronze")
     .trigger(processingTime="10 seconds")
-    .start(f"{BASE_PATH}/bronze_orders")
+    .toTable(f"{DB}.lakeflow_bronze_orders")
 )
 print("Bronze streaming write started...")
 
 time.sleep(8)
 
-silver_orders = spark.read.format("delta").load(f"{BASE_PATH}/bronze_orders") \
+silver_orders = spark.read.table(f"{DB}.lakeflow_bronze_orders") \
     .withColumn("processed_at", F.current_timestamp())
 
-silver_orders.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/silver_orders")
+silver_orders.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_silver_orders")
 print(f"Silver orders created: {silver_orders.count()} rows")
 
 gold_daily_sales = (
-    spark.read.format("delta").load(f"{BASE_PATH}/silver_orders")
+    spark.read.table(f"{DB}.lakeflow_silver_orders")
     .withColumn("order_date", F.to_date(F.col("order_ts")))
     .groupBy("order_date", "region")
     .agg(F.sum("amount").alias("total_sales"), F.count("*").alias("order_count"))
 )
 
-gold_daily_sales.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/gold_daily_sales")
+gold_daily_sales.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_gold_daily_sales")
 print(f"Gold daily sales created: {gold_daily_sales.count()} rows")
 
 # Stop streaming to keep things clean
@@ -262,7 +267,8 @@ print("Bronze stream stopped.")
 ```python
 
 ```
-### SQL Syntax (Lakeflow / DLT) — Commented Reference
+
+ ### SQL Syntax (Lakeflow / DLT) — Commented Reference
 
 ```python
 
@@ -310,7 +316,7 @@ print("Bronze stream stopped.")
 #      MANUAL EQUIVALENT — COMMUNITY EDITION (SQL-centric)
 # =============================================================================
 
-spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW orders_source AS SELECT * FROM delta.`{BASE_PATH}/raw_orders`")
+spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW orders_source AS SELECT * FROM {DB}.lakeflow_raw_orders")
 
 spark.sql(f"""
     CREATE OR REPLACE TEMPORARY VIEW bronze_orders_sql AS
@@ -348,55 +354,59 @@ spark.sql("SELECT * FROM gold_daily_sales_sql ORDER BY order_date DESC").show(5)
 ```python
 
 ```
-### Side-by-Side Comparison
+
+ ### Side-by-Side Comparison
 
 ```python
 
 ```
 
-```
-╔══════════════════════════════════════════════════════════════════════╗
-║                      LAKEFLOW / DLT vs. MANUAL                       ║
-╠═══════════════════════╦══════════════════════════════════════════════╣
-║ With Lakeflow (DLT)   ║ Without Lakeflow (CE - Manual)               ║
-╠═══════════════════════╬══════════════════════════════════════════════╣
-║ @table decorator      ║ Manual readStream / writeStream orchestration║
-║ Automatic lineage     ║ Must track lineage yourself                  ║
-║ Built-in quality      ║ Must implement quality checks manually       ║
-║ Auto-handles state    ║ Must manage checkpoints, schema evolution    ║
-║ Declarative - "what"  ║ Imperative - "how"                           ║
-║ Pipeline UI dashboard ║ No built-in pipeline monitoring              ║
-║ Incremental refresh   ║ Must implement incremental logic manually    ║
-║ SQL + Python unified  ║ Separate code paths for SQL vs PySpark       ║
-╚═══════════════════════╩══════════════════════════════════════════════╝
-```
+
+ ```
+ ╔══════════════════════════════════════════════════════════════════════╗
+ ║                      LAKEFLOW / DLT vs. MANUAL                       ║
+ ╠═══════════════════════╦══════════════════════════════════════════════╣
+ ║ With Lakeflow (DLT)   ║ Without Lakeflow (CE - Manual)               ║
+ ╠═══════════════════════╬══════════════════════════════════════════════╣
+ ║ @table decorator      ║ Manual readStream / writeStream orchestration║
+ ║ Automatic lineage     ║ Must track lineage yourself                  ║
+ ║ Built-in quality      ║ Must implement quality checks manually       ║
+ ║ Auto-handles state    ║ Must manage checkpoints, schema evolution    ║
+ ║ Declarative - "what"  ║ Imperative - "how"                           ║
+ ║ Pipeline UI dashboard ║ No built-in pipeline monitoring              ║
+ ║ Incremental refresh   ║ Must implement incremental logic manually    ║
+ ║ SQL + Python unified  ║ Separate code paths for SQL vs PySpark       ║
+ ╚═══════════════════════╩══════════════════════════════════════════════╝
+ ```
 
 ```python
 
 ```
----
-## Concept 72 — Streaming Tables vs. Materialized Views
 
-**Difficulty: Medium**
+ ---
+ ## Concept 72 — Streaming Tables vs. Materialized Views
 
-### Core Difference
+ **Difficulty: Medium**
 
-| | Streaming Table | Materialized View |
-|---|---|---|
-| **Write mode** | Append-only | Full recompute (overwrite) |
-| **Use case** | Ingestion, CDC, event streams | Aggregations, joins, derived datasets |
-| **Exactly-once** | Yes (Delta guarantees) | Yes (idempotent recompute) |
-| **Refresh** | Incremental, near real-time | On schedule or pipeline trigger |
-| **State management** | Auto-managed checkpoints | Full result recalc per refresh |
-| **Schema evolution** | Auto-handled | Handled on each recompute |
+ ### Core Difference
 
-In Lakeflow, you never write `writeStream` / `readStream` — the framework decides
-whether incremental or full recompute is appropriate based on the declaration.
+ | | Streaming Table | Materialized View |
+ |---|---|---|
+ | **Write mode** | Append-only | Full recompute (overwrite) |
+ | **Use case** | Ingestion, CDC, event streams | Aggregations, joins, derived datasets |
+ | **Exactly-once** | Yes (Delta guarantees) | Yes (idempotent recompute) |
+ | **Refresh** | Incremental, near real-time | On schedule or pipeline trigger |
+ | **State management** | Auto-managed checkpoints | Full result recalc per refresh |
+ | **Schema evolution** | Auto-handled | Handled on each recompute |
+
+ In Lakeflow, you never write `writeStream` / `readStream` — the framework decides
+ whether incremental or full recompute is appropriate based on the declaration.
 
 ```python
 
 ```
-### Manual Streaming Table (Community Edition)
+
+ ### Manual Streaming Table (Community Edition)
 
 ```python
 
@@ -404,13 +414,11 @@ whether incremental or full recompute is appropriate based on the declaration.
 #      MANUAL STREAMING TABLE — Append-only ingestion to Delta
 # =============================================================================
 
-checkpoint_stream = f"{BASE_PATH}/_checkpoint/manual_streaming_table"
+checkpoint_stream = "/lakeflow_demo/_checkpoint/manual_streaming_table"
 
 streaming_input = (
     spark.readStream
-    .format("delta")
-    .option("maxFilesPerTrigger", 2)
-    .load(f"{BASE_PATH}/raw_orders")
+    .table(f"{DB}.lakeflow_raw_orders")
     .withColumn("streamed_at", F.current_timestamp())
 )
 
@@ -421,7 +429,7 @@ stream_writer = (
     .option("checkpointLocation", checkpoint_stream)
     .trigger(processingTime="5 seconds")
     .queryName("manual_streaming_table")
-    .start(f"{BASE_PATH}/manual_streaming_table")
+    .toTable(f"{DB}.lakeflow_manual_streaming_table")
 )
 
 print("Manual streaming table started — append-only, exactly-once via Delta log")
@@ -430,7 +438,7 @@ stream_writer.stop()
 print("Streaming table stopped.")
 
 # Show what was ingested
-spark.read.format("delta").load(f"{BASE_PATH}/manual_streaming_table") \
+spark.read.table(f"{DB}.lakeflow_manual_streaming_table") \
     .select("order_id", "amount", "streamed_at") \
     .orderBy(F.desc("streamed_at")).show(5, False)
 
@@ -439,7 +447,8 @@ spark.read.format("delta").load(f"{BASE_PATH}/manual_streaming_table") \
 ```python
 
 ```
-### Manual Materialized View (Community Edition)
+
+ ### Manual Materialized View (Community Edition)
 
 ```python
 
@@ -449,7 +458,7 @@ spark.read.format("delta").load(f"{BASE_PATH}/manual_streaming_table") \
 
 def refresh_materialized_view():
     """Simulates Lakeflow's materialized view refresh — full recompute."""
-    source = spark.read.format("delta").load(f"{BASE_PATH}/raw_orders") \
+    source = spark.read.table(f"{DB}.lakeflow_raw_orders") \
         .withColumn("order_date", F.to_date("order_ts"))
 
     mv_customer_metrics = (
@@ -464,7 +473,7 @@ def refresh_materialized_view():
     )
 
     mv_customer_metrics.write.format("delta").mode("overwrite") \
-        .save(f"{BASE_PATH}/mv_customer_metrics")
+        .saveAsTable(f"{DB}.lakeflow_mv_customer_metrics")
     return mv_customer_metrics
 
 mv1 = refresh_materialized_view()
@@ -473,7 +482,7 @@ mv1.show(5, False)
 
 # Add more data, then re-refresh (simulating Lakeflow's incremental pipeline run)
 more_orders = spark.createDataFrame(generate_orders(30), schema=order_schema)
-more_orders.write.format("delta").mode("append").save(f"{BASE_PATH}/raw_orders")
+more_orders.write.format("delta").mode("append").saveAsTable(f"{DB}.lakeflow_raw_orders")
 
 mv2 = refresh_materialized_view()
 print(f"\nAfter new data — re-refreshed: {mv2.count()} rows")
@@ -484,60 +493,64 @@ mv2.show(5, False)
 ```python
 
 ```
-### Comparison Summary
+
+ ### Comparison Summary
 
 ```python
 
 ```
 
-```
-╔══════════════════════════════════════════════════════════════════════════════╗
-║ STREAMING TABLE (Lakeflow)                                                  ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║ @table(name="bronze_orders")                                                ║
-║ def bronze_orders():                                                        ║
-║     return spark.readStream.table("raw_orders")                             ║
-║                      ↓ DECLARATIVE ↓                                        ║
-║ Lakeflow handles: checkpoints, retries, schema evolution, monitoring.       ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║ VS. MANUAL (Community Edition) — 30+ lines of boilerplate                    ║
-║ .readStream → .writeStream → checkpoint dir → trigger config → monitor      ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-║ MATERIALIZED VIEW (Lakeflow)                                                ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║ @materialized_view(name="gold_daily", schedule_cron="0 0 * * *")            ║
-║ def gold_daily():                                                           ║
-║     return dlt.read("silver").groupBy(...).agg(...)                         ║
-║                      ↓ DECLARATIVE ↓                                        ║
-║ Lakeflow handles: recompute scheduling, overwrite, backfill, dependencies.  ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║ VS. MANUAL (Community Edition)                                              ║
-║ Manual scheduled function + .mode("overwrite") + cron scheduler + monitoring║
-╚══════════════════════════════════════════════════════════════════════════════╝
-```
+
+ ```
+ ╔══════════════════════════════════════════════════════════════════════════════╗
+ ║ STREAMING TABLE (Lakeflow)                                                  ║
+ ╠══════════════════════════════════════════════════════════════════════════════╣
+ ║ @table(name="bronze_orders")                                                ║
+ ║ def bronze_orders():                                                        ║
+ ║     return spark.readStream.table("raw_orders")                             ║
+ ║                      ↓ DECLARATIVE ↓                                        ║
+ ║ Lakeflow handles: checkpoints, retries, schema evolution, monitoring.       ║
+ ╠══════════════════════════════════════════════════════════════════════════════╣
+ ║ VS. MANUAL (Community Edition) — 30+ lines of boilerplate                    ║
+ ║ .readStream → .writeStream → checkpoint dir → trigger config → monitor      ║
+ ╚══════════════════════════════════════════════════════════════════════════════╝
+ ║ MATERIALIZED VIEW (Lakeflow)                                                ║
+ ╠══════════════════════════════════════════════════════════════════════════════╣
+ ║ @materialized_view(name="gold_daily", schedule_cron="0 0 * * *")            ║
+ ║ def gold_daily():                                                           ║
+ ║     return dlt.read("silver").groupBy(...).agg(...)                         ║
+ ║                      ↓ DECLARATIVE ↓                                        ║
+ ║ Lakeflow handles: recompute scheduling, overwrite, backfill, dependencies.  ║
+ ╠══════════════════════════════════════════════════════════════════════════════╣
+ ║ VS. MANUAL (Community Edition)                                              ║
+ ║ Manual scheduled function + .mode("overwrite") + cron scheduler + monitoring║
+ ╚══════════════════════════════════════════════════════════════════════════════╝
+ ```
 
 ```python
 
 ```
----
-## Concept 73 — Expectations (Data Quality Rules)
 
-**Difficulty: Medium**
+ ---
+ ## Concept 73 — Expectations (Data Quality Rules)
 
-Lakeflow expectations are **inline data quality constraints** with three violation actions:
+ **Difficulty: Medium**
 
-| Action | Lakeflow Syntax | Behavior |
-|--------|----------------|----------|
-| **Warn** | `expect("desc", "condition")` | Log metric, keep row |
-| **Drop** | `expect_or_drop("desc", "condition")` | Log metric, discard row |
-| **Fail** | `expect_or_fail("desc", "condition")` | Log metric, stop pipeline |
+ Lakeflow expectations are **inline data quality constraints** with three violation actions:
 
-Metrics are tracked in the event log: pass %, fail %, row counts per expectation.
+ | Action | Lakeflow Syntax | Behavior |
+ |--------|----------------|----------|
+ | **Warn** | `expect("desc", "condition")` | Log metric, keep row |
+ | **Drop** | `expect_or_drop("desc", "condition")` | Log metric, discard row |
+ | **Fail** | `expect_or_fail("desc", "condition")` | Log metric, stop pipeline |
+
+ Metrics are tracked in the event log: pass %, fail %, row counts per expectation.
 
 ```python
 
 ```
-### Lakeflow Expectations (Commented Reference)
+
+ ### Lakeflow Expectations (Commented Reference)
 
 ```python
 
@@ -566,7 +579,8 @@ Metrics are tracked in the event log: pass %, fail %, row counts per expectation
 ```python
 
 ```
-### Manual Expectation Framework (Community Edition)
+
+ ### Manual Expectation Framework (Community Edition)
 
 ```python
 
@@ -656,7 +670,7 @@ class ExpectationFramework:
 
 
 # --- DEMO: Apply expectations ---
-raw_df = spark.read.format("delta").load(f"{BASE_PATH}/raw_orders")
+raw_df = spark.read.table(f"{DB}.lakeflow_raw_orders")
 print(f"Raw data: {raw_df.count()} rows\n")
 
 ef = ExpectationFramework(name="silver_quality_demo")
@@ -670,8 +684,8 @@ clean_df = ef.expect_range(clean_df, "discount_pct", 0, 100, action="warn")
 clean_df = ef.expect(clean_df, "amount_not_outlier",
                      (F.col("amount") > 0) & (F.col("amount") < 1500), action="warn")
 
-clean_df.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/silver_orders_quality")
-print(f"\nCleaned data: {clean_df.count()} rows → {BASE_PATH}/silver_orders_quality")
+clean_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_silver_orders_quality")
+print(f"\nCleaned data: {clean_df.count()} rows → {DB}.lakeflow_silver_orders_quality")
 
 ef.report()
 
@@ -680,7 +694,8 @@ ef.report()
 ```python
 
 ```
-### Quality Monitoring Table
+
+ ### Quality Monitoring Table
 
 ```python
 
@@ -708,38 +723,40 @@ quality_schema = T.StructType([
 ])
 
 quality_df = spark.createDataFrame(quality_records, schema=quality_schema)
-quality_df.write.format("delta").mode("append").save(f"{BASE_PATH}/pipeline_quality_log")
+quality_df.write.format("delta").mode("append").saveAsTable(f"{DB}.lakeflow_pipeline_quality_log")
 
 print("Quality monitoring table:")
-spark.read.format("delta").load(f"{BASE_PATH}/pipeline_quality_log").show(truncate=False)
+spark.read.table(f"{DB}.lakeflow_pipeline_quality_log").show(truncate=False)
 
 ```
 
 ```python
 
 ```
----
-## Concept 74 — Pipeline Development & Testing
 
-**Difficulty: Medium**
+ ---
+ ## Concept 74 — Pipeline Development & Testing
 
-Lakeflow supports two operational modes:
+ **Difficulty: Medium**
 
-| Mode | Behavior | Pipeline Setting |
-|------|----------|-----------------|
-| **Development** | Uses `dev_` prefix, stops on failure, cheaper clusters | `development: true` |
-| **Production** | No prefix, continues on expectation failures | `development: false` (default) |
+ Lakeflow supports two operational modes:
 
-**Refresh types:**
-- **Full refresh**: reprocesses all data from scratch
-- **Incremental**: only processes new data since last run
+ | Mode | Behavior | Pipeline Setting |
+ |------|----------|-----------------|
+ | **Development** | Uses `dev_` prefix, stops on failure, cheaper clusters | `development: true` |
+ | **Production** | No prefix, continues on expectation failures | `development: false` (default) |
 
-Testing involves creating representative data fixtures and asserting outputs.
+ **Refresh types:**
+ - **Full refresh**: reprocesses all data from scratch
+ - **Incremental**: only processes new data since last run
+
+ Testing involves creating representative data fixtures and asserting outputs.
 
 ```python
 
 ```
-### Test Data Fixtures (Community Edition)
+
+ ### Test Data Fixtures (Community Edition)
 
 ```python
 
@@ -778,7 +795,8 @@ clean_test.show(truncate=False)
 ```python
 
 ```
-### Pipeline Testing Patterns (Community Edition)
+
+ ### Pipeline Testing Patterns (Community Edition)
 
 ```python
 
@@ -858,24 +876,26 @@ test_results = test_pipeline_logic()
 ```python
 
 ```
----
-## Concept 75 — Pipeline Monitoring & Event Log
 
-**Difficulty: Medium**
+ ---
+ ## Concept 75 — Pipeline Monitoring & Event Log
 
-Lakeflow automatically writes an **event log** to a `__events__` table in the storage
+ **Difficulty: Medium**
+
+ Lakeflow automatically writes an **event log** to a `__events__` table in the storage
 # MV location. The event log contains:
-- **Flow events**: table creates, updates, drops
-- **Progress events**: row counts, processing times
-- **Expectation events**: quality metric pass/fail/drop counts
-- **Cluster events**: resource allocation
+ - **Flow events**: table creates, updates, drops
+ - **Progress events**: row counts, processing times
+ - **Expectation events**: quality metric pass/fail/drop counts
+ - **Cluster events**: resource allocation
 
-Queries against the event log enable monitoring, alerting, and lineage tracking.
+ Queries against the event log enable monitoring, alerting, and lineage tracking.
 
 ```python
 
 ```
-### Lakeflow Event Log Access (Commented Reference)
+
+ ### Lakeflow Event Log Access (Commented Reference)
 
 ```python
 
@@ -909,7 +929,8 @@ Queries against the event log enable monitoring, alerting, and lineage tracking.
 ```python
 
 ```
-### Manual Pipeline Monitoring Framework (Community Edition)
+
+ ### Manual Pipeline Monitoring Framework (Community Edition)
 
 ```python
 
@@ -918,10 +939,10 @@ import uuid
 class PipelineRunTracker:
     """Mimics Lakeflow event log for manual pipeline monitoring."""
 
-    def __init__(self, pipeline_name, storage_location=BASE_PATH):
+    def __init__(self, pipeline_name, table_name=f"{DB}.lakeflow_pipeline_runs_log"):
         self.pipeline_name = pipeline_name
         self.run_id = str(uuid.uuid4())[:8]
-        self.log_path = f"{storage_location}/_monitoring/pipeline_runs"
+        self.table_name = table_name
         self.events = []
         self.start_time = None
         self.end_time = None
@@ -984,7 +1005,7 @@ class PipelineRunTracker:
 
     def _persist(self):
         df = spark.createDataFrame(self.events)
-        df.write.format("delta").mode("append").save(self.log_path)
+        df.write.format("delta").mode("append").saveAsTable(self.table_name)
 
 
 # --- DEMO: Track a pipeline run ---
@@ -992,7 +1013,7 @@ tracker = PipelineRunTracker("daily_retail_etl")
 tracker.start()
 
 # Simulate multi-step pipeline
-raw_count = spark.read.format("delta").load(f"{BASE_PATH}/raw_orders").count()
+raw_count = spark.read.table(f"{DB}.lakeflow_raw_orders").count()
 tracker.log_step("read_raw", None, raw_count, 120)
 
 t0 = time.time()
@@ -1020,17 +1041,16 @@ tracker.finish(success=True)
 ```python
 
 ```
-### Querying Run History
+
+ ### Querying Run History
 
 ```python
 
 # =============================================================================
 #      QUERY PIPELINE RUN HISTORY
 # =============================================================================
-monitoring_path = f"{BASE_PATH}/_monitoring/pipeline_runs"
-
 try:
-    run_history = spark.read.format("delta").load(monitoring_path)
+    run_history = spark.read.table(f"{DB}.lakeflow_pipeline_runs_log")
 
     print("=== Recent Pipeline Runs ===")
     run_history.filter(F.col("event_type").isin("pipeline_start", "pipeline_finish")) \
@@ -1051,26 +1071,28 @@ except Exception as e:
 ```python
 
 ```
----
-## Concept 76 — Pipeline Modes: Triggered vs. Continuous
 
-**Difficulty: Medium**
+ ---
+ ## Concept 76 — Pipeline Modes: Triggered vs. Continuous
 
-Lakeflow supports two execution modes that map closely to Structured Streaming triggers:
+ **Difficulty: Medium**
 
-| Mode | Behavior | Use Case | Trigger |
-|------|----------|----------|---------|
-| **Triggered** | Processes available data, then stops | Scheduled batch ETL | `availableNow` |
-| **Continuous** | Always running, sub-second latency | Real-time dashboards | `processingTime` |
+ Lakeflow supports two execution modes that map closely to Structured Streaming triggers:
 
-**Cost/Latency Tradeoff**:
-- Triggered = cheaper (clusters shut down between runs) but higher latency
-- Continuous = lower latency but higher cost (always-on compute)
+ | Mode | Behavior | Use Case | Trigger |
+ |------|----------|----------|---------|
+ | **Triggered** | Processes available data, then stops | Scheduled batch ETL | `availableNow` |
+ | **Continuous** | Always running, sub-second latency | Real-time dashboards | `processingTime` |
+
+ **Cost/Latency Tradeoff**:
+ - Triggered = cheaper (clusters shut down between runs) but higher latency
+ - Continuous = lower latency but higher cost (always-on compute)
 
 ```python
 
 ```
-### Lakeflow Mode Configuration (Commented Reference)
+
+ ### Lakeflow Mode Configuration (Commented Reference)
 
 ```python
 
@@ -1098,7 +1120,8 @@ Lakeflow supports two execution modes that map closely to Structured Streaming t
 ```python
 
 ```
-### Manual — Triggered Mode (availableNow)
+
+ ### Manual — Triggered Mode (availableNow)
 
 ```python
 
@@ -1106,13 +1129,11 @@ Lakeflow supports two execution modes that map closely to Structured Streaming t
 #      MANUAL — TRIGGERED PIPELINE (availableNow)
 #      Processes all available data, then stops.
 # =============================================================================
-checkpoint_triggered = f"{BASE_PATH}/_checkpoint/triggered_demo"
+checkpoint_triggered = "/lakeflow_demo/_checkpoint/triggered_demo"
 
 triggered_stream = (
     spark.readStream
-    .format("delta")
-    .option("maxFilesPerTrigger", 5)
-    .load(f"{BASE_PATH}/raw_orders")
+    .table(f"{DB}.lakeflow_raw_orders")
     .withColumn("trigger_type", F.lit("TRIGGERED"))
     .withColumn("processed_at", F.current_timestamp())
 )
@@ -1122,21 +1143,22 @@ triggered_query = (
     .format("delta")
     .outputMode("append")
     .option("checkpointLocation", checkpoint_triggered)
-    .trigger(availableNow=True)           # ← "triggered" mode
+    .trigger(availableNow=True)
     .queryName("triggered_pipeline")
-    .start(f"{BASE_PATH}/silver_triggered")
+    .toTable(f"{DB}.lakeflow_silver_triggered")
 )
 
 triggered_query.awaitTermination()
 print(f"Triggered pipeline finished. Status: {triggered_query.status['message']}")
-spark.read.format("delta").load(f"{BASE_PATH}/silver_triggered").show(5)
+spark.read.table(f"{DB}.lakeflow_silver_triggered").show(5)
 
 ```
 
 ```python
 
 ```
-### Manual — Continuous Mode (processingTime)
+
+ ### Manual — Continuous Mode (processingTime)
 
 ```python
 
@@ -1144,13 +1166,11 @@ spark.read.format("delta").load(f"{BASE_PATH}/silver_triggered").show(5)
 #      MANUAL — CONTINUOUS PIPELINE (processingTime)
 #      Always running — processes micro-batches every N seconds.
 # =============================================================================
-checkpoint_continuous = f"{BASE_PATH}/_checkpoint/continuous_demo"
+checkpoint_continuous = "/lakeflow_demo/_checkpoint/continuous_demo"
 
 continuous_stream = (
     spark.readStream
-    .format("delta")
-    .option("maxFilesPerTrigger", 1)
-    .load(f"{BASE_PATH}/raw_orders")
+    .table(f"{DB}.lakeflow_raw_orders")
     .withColumn("trigger_type", F.lit("CONTINUOUS"))
     .withColumn("processed_at", F.current_timestamp())
 )
@@ -1160,9 +1180,9 @@ continuous_query = (
     .format("delta")
     .outputMode("append")
     .option("checkpointLocation", checkpoint_continuous)
-    .trigger(processingTime="5 seconds")   # ← "continuous" mode
+    .trigger(processingTime="5 seconds")
     .queryName("continuous_pipeline")
-    .start(f"{BASE_PATH}/silver_continuous")
+    .toTable(f"{DB}.lakeflow_silver_continuous")
 )
 
 print("Continuous pipeline running — will stop after 12 seconds for demo...")
@@ -1170,7 +1190,7 @@ time.sleep(12)
 continuous_query.stop()
 print("Continuous query stopped.")
 
-spark.read.format("delta").load(f"{BASE_PATH}/silver_continuous") \
+spark.read.table(f"{DB}.lakeflow_silver_continuous") \
     .select("order_id", "trigger_type", "processed_at").show(5, False)
 
 ```
@@ -1178,52 +1198,56 @@ spark.read.format("delta").load(f"{BASE_PATH}/silver_continuous") \
 ```python
 
 ```
-### Mode Comparison Summary
+
+ ### Mode Comparison Summary
 
 ```python
 
 ```
 
-```
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                         TRIGGERED vs. CONTINUOUS                             ║
-╠═══════════════════════╦══════════════════════════════════════════════════════╣
-║ Triggered             ║ Continuous                                          ║
-╠═══════════════════════╬══════════════════════════════════════════════════════╣
-║ .trigger(availableNow)║ .trigger(processingTime="X seconds")                 ║
-║ Stops when done       ║ Runs until explicitly stopped                       ║
-║ Minutes latency       ║ Sub-second latency                                  ║
-║ Lower cost (ephemeral)║ Higher cost (always-on)                             ║
-║ Good for: daily ETL   ║ Good for: real-time dashboards, alerting            ║
-║ Lakeflow continuous:  ║ Lakeflow triggered:                                 ║
-║   "continuous": false  ║   "continuous": true                                ║
-╚═══════════════════════╩══════════════════════════════════════════════════════╝
-```
+
+ ```
+ ╔══════════════════════════════════════════════════════════════════════════════╗
+ ║                         TRIGGERED vs. CONTINUOUS                             ║
+ ╠═══════════════════════╦══════════════════════════════════════════════════════╣
+ ║ Triggered             ║ Continuous                                          ║
+ ╠═══════════════════════╬══════════════════════════════════════════════════════╣
+ ║ .trigger(availableNow)║ .trigger(processingTime="X seconds")                 ║
+ ║ Stops when done       ║ Runs until explicitly stopped                       ║
+ ║ Minutes latency       ║ Sub-second latency                                  ║
+ ║ Lower cost (ephemeral)║ Higher cost (always-on)                             ║
+ ║ Good for: daily ETL   ║ Good for: real-time dashboards, alerting            ║
+ ║ Lakeflow continuous:  ║ Lakeflow triggered:                                 ║
+ ║   "continuous": false  ║   "continuous": true                                ║
+ ╚═══════════════════════╩══════════════════════════════════════════════════════╝
+ ```
 
 ```python
 
 ```
----
-## Concept 77 — CDC Processing: AUTO CDC INTO
 
-**Difficulty: Hard**
+ ---
+ ## Concept 77 — CDC Processing: AUTO CDC INTO
 
-CDC (Change Data Capture) processes row-level changes (INSERT, UPDATE, DELETE) from
+ **Difficulty: Hard**
+
+ CDC (Change Data Capture) processes row-level changes (INSERT, UPDATE, DELETE) from
 # MGIC source systems. Lakeflow provides **`AUTO CDC INTO`** (formerly `APPLY CHANGES INTO`)
 # MGIC to handle this declaratively:
 
-- **SCD Type 1**: Overwrites old values with new values (no history)
-- **SCD Type 2**: Tracks full history with `__START_AT` and `__END_AT` columns
+ - **SCD Type 1**: Overwrites old values with new values (no history)
+ - **SCD Type 2**: Tracks full history with `__START_AT` and `__END_AT` columns
 
-Key concepts:
-- **Sequencing column**: determines order of changes (e.g., `sequence_num`, `timestamp`)
-- **Primary keys**: identify which rows to update
-- **Deduplication**: latest change per sequence wins
+ Key concepts:
+ - **Sequencing column**: determines order of changes (e.g., `sequence_num`, `timestamp`)
+ - **Primary keys**: identify which rows to update
+ - **Deduplication**: latest change per sequence wins
 
 ```python
 
 ```
-### Generate Synthetic CDC Events
+
+ ### Generate Synthetic CDC Events
 
 ```python
 
@@ -1244,7 +1268,7 @@ cdc_events = spark.createDataFrame([
     ("UPDATE", "C00001", "alice.new@example.com","Enterprise","US-West",   "2024-01-10", 9),   # Alice changed again
 ], schema=["op", "customer_id", "email", "tier", "region", "signup_date", "sequence"])
 
-cdc_events.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/cdc_feed")
+cdc_events.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_cdc_feed")
 print("CDC events:")
 cdc_events.orderBy("sequence").show(truncate=False)
 
@@ -1253,7 +1277,8 @@ cdc_events.orderBy("sequence").show(truncate=False)
 ```python
 
 ```
-### Lakeflow AUTO CDC INTO (Commented Reference)
+
+ ### Lakeflow AUTO CDC INTO (Commented Reference)
 
 ```python
 
@@ -1293,7 +1318,8 @@ cdc_events.orderBy("sequence").show(truncate=False)
 ```python
 
 ```
-### Manual CDC Processing — SCD Type 2 (Community Edition)
+
+ ### Manual CDC Processing — SCD Type 2 (Community Edition)
 
 ```python
 
@@ -1309,7 +1335,7 @@ def apply_cdc_scd2(source_df, target_path, keys, sequence_col, op_col="op",
 
     from delta.tables import DeltaTable
 
-    target_full_path = f"{BASE_PATH}/{target_path}"
+    target_table = f"{DB}.lakeflow_{target_path}"
 
     # 1. Get the latest version of each key (deduplication by sequence)
     latest_changes = (
@@ -1326,16 +1352,16 @@ def apply_cdc_scd2(source_df, target_path, keys, sequence_col, op_col="op",
     inserts = latest_changes.filter(F.col(op_col) == insert_op)
     updates = latest_changes.filter(F.col(op_col) == update_op)
 
-    if not DeltaTable.isDeltaTable(spark, target_full_path):
+    if not DeltaTable.isDeltaTable(spark, target_table):
         # First run: initialize target table
         inserts \
             .withColumn("__START_AT", F.current_timestamp()) \
             .withColumn("__END_AT", F.lit(None).cast("timestamp")) \
-            .write.format("delta").mode("overwrite").save(target_full_path)
-        print(f"[INIT] Created SCD2 table: {target_full_path} with {inserts.count()} rows")
-        return DeltaTable.forPath(spark, target_full_path)
+            .write.format("delta").mode("overwrite").saveAsTable(target_table)
+        print(f"[INIT] Created SCD2 table: {target_table} with {inserts.count()} rows")
+        return DeltaTable.forName(spark, target_table)
 
-    target = DeltaTable.forPath(spark, target_full_path)
+    target = DeltaTable.forName(spark, target_table)
     now = F.current_timestamp()
 
     # 2. Handle DELETES: close current records
@@ -1370,7 +1396,7 @@ def apply_cdc_scd2(source_df, target_path, keys, sequence_col, op_col="op",
             .withColumn("__START_AT", F.current_timestamp())
             .withColumn("__END_AT", F.lit(None).cast("timestamp"))
         )
-        new_versions.write.format("delta").mode("append").save(target_full_path)
+        new_versions.write.format("delta").mode("append").saveAsTable(target_table)
         print(f"[CDC] Closed + inserted {updates.count()} updated record(s)")
 
     # 4. Handle INSERTS
@@ -1378,14 +1404,14 @@ def apply_cdc_scd2(source_df, target_path, keys, sequence_col, op_col="op",
         inserts \
             .withColumn("__START_AT", F.current_timestamp()) \
             .withColumn("__END_AT", F.lit(None).cast("timestamp")) \
-            .write.format("delta").mode("append").save(target_full_path)
+            .write.format("delta").mode("append").saveAsTable(target_table)
         print(f"[CDC] Inserted {inserts.count()} new record(s)")
 
-    return DeltaTable.forPath(spark, target_full_path)
+    return DeltaTable.forName(spark, target_table)
 
 
 # --- DEMO: Apply CDC to customer dimension ---
-cdc_source = spark.read.format("delta").load(f"{BASE_PATH}/cdc_feed")
+cdc_source = spark.read.table(f"{DB}.lakeflow_cdc_feed")
 
 target = apply_cdc_scd2(
     source_df=cdc_source,
@@ -1416,7 +1442,8 @@ print(f"✅ Charlie deleted — __END_AT is set (0 current records)")
 ```python
 
 ```
-### CDC SCD Type 1 (No History) — Manual Equivalent
+
+ ### CDC SCD Type 1 (No History) — Manual Equivalent
 
 ```python
 
@@ -1425,7 +1452,7 @@ print(f"✅ Charlie deleted — __END_AT is set (0 current records)")
 # =============================================================================
 def apply_cdc_scd1(source_df, target_path, keys, sequence_col):
     from delta.tables import DeltaTable
-    target_full_path = f"{BASE_PATH}/{target_path}"
+    target_table = f"{DB}.lakeflow_{target_path}"
 
     latest = (
         source_df
@@ -1436,13 +1463,13 @@ def apply_cdc_scd1(source_df, target_path, keys, sequence_col):
         .drop("_rn")
     )
 
-    if not DeltaTable.isDeltaTable(spark, target_full_path):
-        latest.write.format("delta").mode("overwrite").save(target_full_path)
-        print(f"[INIT] Created SCD1 table: {target_full_path}")
+    if not DeltaTable.isDeltaTable(spark, target_table):
+        latest.write.format("delta").mode("overwrite").saveAsTable(target_table)
+        print(f"[INIT] Created SCD1 table: {target_table}")
         return
 
     join_cond = " AND ".join([f"target.{k} = source.{k}" for k in keys])
-    DeltaTable.forPath(spark, target_full_path).alias("target").merge(
+    DeltaTable.forName(spark, target_table).alias("target").merge(
         latest.alias("source"), join_cond
     ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
     print(f"[CDB] SCD1 upserted {latest.count()} rows")
@@ -1456,7 +1483,7 @@ apply_cdc_scd1(
 )
 
 print("\nSCD1 Table (overwritten — no history):")
-spark.read.format("delta").load(f"{BASE_PATH}/customers_scd1") \
+spark.read.table(f"{DB}.lakeflow_customers_scd1") \
     .orderBy("customer_id").show(truncate=False)
 
 ```
@@ -1464,25 +1491,27 @@ spark.read.format("delta").load(f"{BASE_PATH}/customers_scd1") \
 ```python
 
 ```
----
-## Concept 78 — Error Handling & Dead Letter Patterns
 
-**Difficulty: Hard**
+ ---
+ ## Concept 78 — Error Handling & Dead Letter Patterns
 
-In production pipelines, not all data is clean. Lakeflow provides:
+ **Difficulty: Hard**
 
-- **`expect_or_drop`**: Route bad records out of the main pipeline
-- **`expect_or_fail`**: Halt pipeline on critical violations
-- **On violation metrics**: Track error rates in event log
+ In production pipelines, not all data is clean. Lakeflow provides:
 
-The **Dead Letter Queue (DLQ)** pattern captures bad records for later inspection:
-- Main table → only valid records
-- Dead letter table → invalid records with error metadata
+ - **`expect_or_drop`**: Route bad records out of the main pipeline
+ - **`expect_or_fail`**: Halt pipeline on critical violations
+ - **On violation metrics**: Track error rates in event log
+
+ The **Dead Letter Queue (DLQ)** pattern captures bad records for later inspection:
+ - Main table → only valid records
+ - Dead letter table → invalid records with error metadata
 
 ```python
 
 ```
-### Lakeflow Dead Letter Pattern (Commented Reference)
+
+ ### Lakeflow Dead Letter Pattern (Commented Reference)
 
 ```python
 
@@ -1511,7 +1540,8 @@ The **Dead Letter Queue (DLQ)** pattern captures bad records for later inspectio
 ```python
 
 ```
-### Manual Dead Letter Queue (Community Edition)
+
+ ### Manual Dead Letter Queue (Community Edition)
 
 ```python
 
@@ -1535,7 +1565,7 @@ def build_dead_letter_pipeline(source_df, rules, valid_output_path, dlq_output_p
         .withColumn("pipeline_status", F.lit("VALID")) \
         .withColumn("processed_at", F.current_timestamp())
 
-    valid_df.write.format("delta").mode("overwrite").save(valid_output_path)
+    valid_df.write.format("delta").mode("overwrite").saveAsTable(valid_output_path)
     print(f"[MAIN] Valid records: {valid_df.count()} → {valid_output_path}")
 
     # --- DLQ output: invalid records with error details ---
@@ -1568,7 +1598,7 @@ def build_dead_letter_pipeline(source_df, rules, valid_output_path, dlq_output_p
             ]]
         )
 
-        dlq_output.write.format("delta").mode("overwrite").save(dlq_output_path)
+        dlq_output.write.format("delta").mode("overwrite").saveAsTable(dlq_output_path)
         print(f"[DLQ]  Dead letter records: {dlq_output.count()} → {dlq_output_path}")
     else:
         print("[DLQ]  No dead letter records — all data valid")
@@ -1607,8 +1637,8 @@ dirty_source.show(truncate=False)
 result = build_dead_letter_pipeline(
     source_df=dirty_source,
     rules=quality_rules,
-    valid_output_path=f"{BASE_PATH}/silver_valid",
-    dlq_output_path=f"{BASE_PATH}/silver_dead_letter",
+    valid_output_path=f"{DB}.lakeflow_silver_valid",
+    dlq_output_path=f"{DB}.lakeflow_silver_dead_letter",
 )
 
 ```
@@ -1616,21 +1646,22 @@ result = build_dead_letter_pipeline(
 ```python
 
 ```
-### Inspect Dead Letter Queue
+
+ ### Inspect Dead Letter Queue
 
 ```python
 
 print("=== MAIN TABLE (valid records) ===")
-spark.read.format("delta").load(f"{BASE_PATH}/silver_valid") \
+spark.read.table(f"{DB}.lakeflow_silver_valid") \
     .select("order_id", "amount", "status", "pipeline_status").show(truncate=False)
 
 print("\n=== DEAD LETTER QUEUE (errors) ===")
-spark.read.format("delta").load(f"{BASE_PATH}/silver_dead_letter") \
+spark.read.table(f"{DB}.lakeflow_silver_dead_letter") \
     .select("order_id", "amount", "status", "error_messages", "error_timestamp") \
     .show(truncate=False)
 
 # --- Error Categorization & Retry Simulation ---
-dlq_df = spark.read.format("delta").load(f"{BASE_PATH}/silver_dead_letter")
+dlq_df = spark.read.table(f"{DB}.lakeflow_silver_dead_letter")
 print("\n=== Error Breakdown ===")
 dlq_df.groupBy("error_messages").count().orderBy(F.desc("count")).show(truncate=False)
 
@@ -1645,26 +1676,28 @@ print(f"Retrying {fixed.count()} records after fixes...")
 ```python
 
 ```
----
-## Concept 79 — Pipeline Parameters & Configuration
 
-**Difficulty: Hard**
+ ---
+ ## Concept 79 — Pipeline Parameters & Configuration
 
-Production pipelines need different behavior per environment. Lakeflow supports:
+ **Difficulty: Hard**
 
-- **Pipeline settings** JSON/YAML configuration
-- **Spark configuration** for cluster-level settings
-- **Databricks widgets** for parameter injection at runtime
+ Production pipelines need different behavior per environment. Lakeflow supports:
 
-Common parameterization patterns:
-- **Storage paths**: dev → `/tmp/dev`, prod → `/mnt/prod-lake`
-- **Refresh cadence**: dev → on-demand, prod → hourly
-- **Quality thresholds**: dev → lower, prod → strict
+ - **Pipeline settings** JSON/YAML configuration
+ - **Spark configuration** for cluster-level settings
+ - **Databricks widgets** for parameter injection at runtime
+
+ Common parameterization patterns:
+ - **Storage paths**: dev → `/tmp/dev`, prod → `/mnt/prod-lake`
+ - **Refresh cadence**: dev → on-demand, prod → hourly
+ - **Quality thresholds**: dev → lower, prod → strict
 
 ```python
 
 ```
-### Lakeflow Pipeline Parameters (Commented Reference)
+
+ ### Lakeflow Pipeline Parameters (Commented Reference)
 
 ```python
 
@@ -1700,7 +1733,8 @@ Common parameterization patterns:
 ```python
 
 ```
-### Manual Configuration Management (Community Edition)
+
+ ### Manual Configuration Management (Community Edition)
 
 ```python
 
@@ -1713,8 +1747,8 @@ class PipelineConfig:
 
     ENVIRONMENTS = {
         "dev": {
-            "source_path": f"{BASE_PATH}/raw_orders",
-            "target_path": f"{BASE_PATH}/curated_dev",
+            "source_path": f"{DB}.lakeflow_raw_orders",
+            "target_path": f"{DB}.lakeflow_curated_dev",
             "quality_mode": "warn",        # dev: don't break on bad data
             "batch_size": 100,
             "trigger_interval": "30 seconds",
@@ -1722,8 +1756,8 @@ class PipelineConfig:
             "log_level": "DEBUG",
         },
         "staging": {
-            "source_path": f"{BASE_PATH}/raw_orders",
-            "target_path": f"{BASE_PATH}/curated_staging",
+            "source_path": f"{DB}.lakeflow_raw_orders",
+            "target_path": f"{DB}.lakeflow_curated_staging",
             "quality_mode": "drop",        # staging: drop bad rows, don't fail
             "batch_size": 1000,
             "trigger_interval": "5 minutes",
@@ -1731,8 +1765,8 @@ class PipelineConfig:
             "log_level": "INFO",
         },
         "prod": {
-            "source_path": f"{BASE_PATH}/raw_orders",
-            "target_path": f"{BASE_PATH}/curated_prod",
+            "source_path": f"{DB}.lakeflow_raw_orders",
+            "target_path": f"{DB}.lakeflow_curated_prod",
             "quality_mode": "fail",        # prod: fail on critical violations
             "batch_size": 5000,
             "trigger_interval": "1 minute",
@@ -1776,7 +1810,7 @@ class ParameterizedPipeline:
 
     def extract(self):
         print(f"[EXTRACT] Reading from {self.source_path} (batch_size={self.batch_size})")
-        source_df = spark.read.format("delta").load(self.source_path) \
+        source_df = spark.read.table(self.source_path) \
             .withColumn("_pipeline_env", F.lit(self.config.env)) \
             .withColumn("_processed_at", F.current_timestamp())
         return source_df.limit(self.batch_size)
@@ -1802,7 +1836,7 @@ class ParameterizedPipeline:
 
     def load(self, df):
         output_path = f"{self.target_path}"
-        df.write.format("delta").mode("overwrite").save(output_path)
+        df.write.format("delta").mode("overwrite").saveAsTable(output_path)
         print(f"[LOAD] Wrote {df.count()} rows to {output_path}")
         return df.count()
 
@@ -1827,7 +1861,8 @@ for env_name in ["dev", "staging", "prod"]:
 ```python
 
 ```
-### Simulating Databricks Widgets for Runtime Parameters
+
+ ### Simulating Databricks Widgets for Runtime Parameters
 
 ```python
 
@@ -1866,36 +1901,38 @@ print(f"  dbutils.widgets.text('batch_size', '{simulated_batch}')")
 ```python
 
 ```
----
-## Concept 80 — Multi-Pipeline Architecture
 
-**Difficulty: Hard**
+ ---
+ ## Concept 80 — Multi-Pipeline Architecture
 
-As pipeline complexity grows, splitting into **focused, smaller pipelines** improves
-maintainability, debuggability, and team ownership. Lakeflow supports sharing tables
-across pipelines and orchestrating execution order.
+ **Difficulty: Hard**
 
-### When to Split
+ As pipeline complexity grows, splitting into **focused, smaller pipelines** improves
+ maintainability, debuggability, and team ownership. Lakeflow supports sharing tables
+ across pipelines and orchestrating execution order.
 
-| Keep Together | Split Apart |
-|---------------|-------------|
-| Tightly coupled transformations | Different SLAs (real-time vs. daily) |
-| Single team owns all | Multiple teams own different stages |
-| Simple linear flow | Complex DAG with dependencies |
-| < 10 tables | Many tables / high cardinality |
+ ### When to Split
 
-### Common Architecture Pattern
-```
-Pipeline 1: Ingestion    (bronze)     → raw → validated
-Pipeline 2: Transformation (silver)    → validated → enriched
-Pipeline 3: Aggregation   (gold)       → enriched → metrics
-Pipeline 4: ML Features   (feature store) → enriched → features
-```
+ | Keep Together | Split Apart |
+ |---------------|-------------|
+ | Tightly coupled transformations | Different SLAs (real-time vs. daily) |
+ | Single team owns all | Multiple teams own different stages |
+ | Simple linear flow | Complex DAG with dependencies |
+ | < 10 tables | Many tables / high cardinality |
+
+ ### Common Architecture Pattern
+ ```
+ Pipeline 1: Ingestion    (bronze)     → raw → validated
+ Pipeline 2: Transformation (silver)    → validated → enriched
+ Pipeline 3: Aggregation   (gold)       → enriched → metrics
+ Pipeline 4: ML Features   (feature store) → enriched → features
+ ```
 
 ```python
 
 ```
-### Lakeflow Multi-Pipeline (Commented Reference)
+
+ ### Lakeflow Multi-Pipeline (Commented Reference)
 
 ```python
 
@@ -1931,7 +1968,8 @@ Pipeline 4: ML Features   (feature store) → enriched → features
 ```python
 
 ```
-### Manual Multi-Pipeline Orchestration (Community Edition)
+
+ ### Manual Multi-Pipeline Orchestration (Community Edition)
 
 ```python
 
@@ -2041,29 +2079,29 @@ class MultiPipelineOrchestrator:
 
 # Pipeline 1: Ingestion
 def ingest_raw_orders():
-    df = spark.read.format("delta").load(f"{BASE_PATH}/raw_orders") \
+    df = spark.read.table(f"{DB}.lakeflow_raw_orders") \
         .withColumn("ingested_at", F.current_timestamp())
-    df.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_bronze")
+    df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_bronze")
     return df.count()
 
 def validate_bronze():
-    df = spark.read.format("delta").load(f"{BASE_PATH}/pipeline_bronze")
+    df = spark.read.table(f"{DB}.lakeflow_pipeline_bronze")
     valid = df.filter(F.col("order_id").isNotNull()) \
               .filter(F.col("amount") > 0) \
               .filter(F.col("status").isin("pending", "shipped", "delivered", "cancelled"))
-    valid.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_bronze_validated")
+    valid.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_bronze_validated")
     invalid = df.filter(~F.col("order_id").isNotNull() |
                          (F.col("amount") <= 0) |
                          ~F.col("status").isin("pending", "shipped", "delivered", "cancelled"))
-    invalid.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_bronze_dlq")
+    invalid.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_bronze_dlq")
     print(f"     Valid: {valid.count()}, Invalid (DLQ): {invalid.count()}")
     return valid.count()
 
 # Pipeline 2: Transformation (depends on ingestion)
 def enrich_silver():
-    orders = spark.read.format("delta").load(f"{BASE_PATH}/pipeline_bronze_validated")
-    products = spark.read.format("delta").load(f"{BASE_PATH}/products")
-    customers = spark.read.format("delta").load(f"{BASE_PATH}/customers")
+    orders = spark.read.table(f"{DB}.lakeflow_pipeline_bronze_validated")
+    products = spark.read.table(f"{DB}.lakeflow_products")
+    customers = spark.read.table(f"{DB}.lakeflow_customers")
 
     enriched = orders \
         .join(products.select("product_id", F.col("price").alias("unit_price"), F.col("category")),
@@ -2075,12 +2113,12 @@ def enrich_silver():
                     F.round(F.col("line_total") * F.col("discount_pct") / 100.0, 2)) \
         .withColumn("net_revenue", F.col("line_total") - F.col("discount_amount"))
 
-    enriched.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_silver")
+    enriched.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_silver")
     return enriched.count()
 
 # Pipeline 3: Aggregation (depends on transformation)
 def aggregate_gold():
-    silver = spark.read.format("delta").load(f"{BASE_PATH}/pipeline_silver")
+    silver = spark.read.table(f"{DB}.lakeflow_pipeline_silver")
 
     daily_metrics = silver \
         .withColumn("order_date", F.to_date("order_ts")) \
@@ -2094,7 +2132,7 @@ def aggregate_gold():
         .withColumn("processed_at", F.current_timestamp())
 
     daily_metrics.write.format("delta").mode("overwrite") \
-        .save(f"{BASE_PATH}/pipeline_gold_daily_metrics")
+        .saveAsTable(f"{DB}.lakeflow_pipeline_gold_daily_metrics")
 
     # Customer-tier KPIs
     tier_metrics = silver \
@@ -2106,13 +2144,13 @@ def aggregate_gold():
         )
 
     tier_metrics.write.format("delta").mode("overwrite") \
-        .save(f"{BASE_PATH}/pipeline_gold_tier_metrics")
+        .saveAsTable(f"{DB}.lakeflow_pipeline_gold_tier_metrics")
 
     return daily_metrics.count()
 
 # Pipeline 4: Data Product / Feature Store (depends on transformation)
 def build_features():
-    silver = spark.read.format("delta").load(f"{BASE_PATH}/pipeline_silver")
+    silver = spark.read.table(f"{DB}.lakeflow_pipeline_silver")
 
     features = silver \
         .groupBy("customer_id") \
@@ -2129,7 +2167,7 @@ def build_features():
                       .when(F.datediff(F.current_date(), F.col("last_order_date")) > 60, "MEDIUM")
                       .otherwise("LOW"))
 
-    features.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_customer_features")
+    features.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_customer_features")
     return features.count()
 
 
@@ -2150,7 +2188,8 @@ execution_log = orchestrator.run()
 ```python
 
 ```
-### Inspect Multi-Pipeline Outputs
+
+ ### Inspect Multi-Pipeline Outputs
 
 ```python
 
@@ -2160,16 +2199,16 @@ for entry in execution_log:
     print(f"  {status_icon} {entry['step']}: {entry['rows']} rows, {entry['duration_sec']:.1f}s")
 
 print("\n=== GOLD: Daily KPIs (sample) ===")
-spark.read.format("delta").load(f"{BASE_PATH}/pipeline_gold_daily_metrics") \
+spark.read.table(f"{DB}.lakeflow_pipeline_gold_daily_metrics") \
     .orderBy(F.desc("order_date"), F.desc("total_revenue")) \
     .show(10, truncate=False)
 
 print("\n=== GOLD: Tier Metrics ===")
-spark.read.format("delta").load(f"{BASE_PATH}/pipeline_gold_tier_metrics") \
+spark.read.table(f"{DB}.lakeflow_pipeline_gold_tier_metrics") \
     .show(truncate=False)
 
 print("\n=== CUSTOMER FEATURES: Top 10 by Lifetime Value ===")
-spark.read.format("delta").load(f"{BASE_PATH}/pipeline_customer_features") \
+spark.read.table(f"{DB}.lakeflow_pipeline_customer_features") \
     .orderBy(F.desc("lifetime_value")) \
     .select("customer_id", "lifetime_orders", "lifetime_value", "churn_risk") \
     .show(10, truncate=False)
@@ -2179,7 +2218,8 @@ spark.read.format("delta").load(f"{BASE_PATH}/pipeline_customer_features") \
 ```python
 
 ```
-### Dependency Graph Visualization
+
+ ### Dependency Graph Visualization
 
 ```python
 
@@ -2224,106 +2264,110 @@ print(graph)
 ```python
 
 ```
----
-## Summary — Lakeflow / DLT vs. Manual Approach
+
+ ---
+ ## Summary — Lakeflow / DLT vs. Manual Approach
 
 ```python
 
 ```
 
-```
-╔══════════════════════════════════════════════════════════════════════════════════╗
-║  CONCEPT              │ WITH LAKEFLOW (DLT)            │ WITHOUT (CE MANUAL)       ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 71. Syntax            │ @table / CREATE STREAMING TABLE│ Manual readStream + write ║
-║                       │ Mix SQL + Python seamlessly   │ Separate code paths       ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 72. Streaming vs MV   │ Auto-handled by framework      │ Manual checkpoint mgmt    ║
-║                       │ Exactly-once built-in          │ Manual append/overwrite   ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 73. Expectations      │ expect / expect_or_drop / fail │ Custom filter functions    ║
-║                       │ Metrics auto-logged to events  │ Manual quality logging     ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 74. Dev & Testing     │ Development mode (dev_ prefix) │ Manual fixture creation    ║
-║                       │ Incremental / full refresh     │ Manual testing patterns    ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 75. Monitoring        │ Event log auto-populated       │ Custom PipelineRunTracker  ║
-║                       │ Built-in lineage & metrics     │ Manual monitoring table    ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 76. Pipeline Modes    │ continuous: true/false config  │ availableNow / processing  ║
-║                       │ UI toggle, no code change      │ Explicit trigger parameter ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 77. CDC Processing    │ AUTO CDC INTO (1 line)         │ Manual MERGE + SCD logic   ║
-║                       │ SCD1/SCD2 automatic            │ ~70 lines of MERGE code    ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 78. Error Handling    │ expect_or_drop → auto DLQ-ish  │ Manual validation + DLQ    ║
-║                       │ Event log tracks violations    │ Manual error categorization║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 79. Parameters        │ JSON pipeline settings         │ Config dict / env vars     ║
-║                       │ Built-in environment support   │ Manual environment switch   ║
-╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
-║ 80. Multi-Pipeline    │ Share tables via LIVE.<name>   │ Manual orchestration code  ║
-║                       │ Databricks Workflows native    │ Custom dependency DAG       ║
-╚═══════════════════════╩════════════════════════════════╩═══════════════════════════╝
-```
+
+ ```
+ ╔══════════════════════════════════════════════════════════════════════════════════╗
+ ║  CONCEPT              │ WITH LAKEFLOW (DLT)            │ WITHOUT (CE MANUAL)       ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 71. Syntax            │ @table / CREATE STREAMING TABLE│ Manual readStream + write ║
+ ║                       │ Mix SQL + Python seamlessly   │ Separate code paths       ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 72. Streaming vs MV   │ Auto-handled by framework      │ Manual checkpoint mgmt    ║
+ ║                       │ Exactly-once built-in          │ Manual append/overwrite   ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 73. Expectations      │ expect / expect_or_drop / fail │ Custom filter functions    ║
+ ║                       │ Metrics auto-logged to events  │ Manual quality logging     ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 74. Dev & Testing     │ Development mode (dev_ prefix) │ Manual fixture creation    ║
+ ║                       │ Incremental / full refresh     │ Manual testing patterns    ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 75. Monitoring        │ Event log auto-populated       │ Custom PipelineRunTracker  ║
+ ║                       │ Built-in lineage & metrics     │ Manual monitoring table    ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 76. Pipeline Modes    │ continuous: true/false config  │ availableNow / processing  ║
+ ║                       │ UI toggle, no code change      │ Explicit trigger parameter ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 77. CDC Processing    │ AUTO CDC INTO (1 line)         │ Manual MERGE + SCD logic   ║
+ ║                       │ SCD1/SCD2 automatic            │ ~70 lines of MERGE code    ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 78. Error Handling    │ expect_or_drop → auto DLQ-ish  │ Manual validation + DLQ    ║
+ ║                       │ Event log tracks violations    │ Manual error categorization║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 79. Parameters        │ JSON pipeline settings         │ Config dict / env vars     ║
+ ║                       │ Built-in environment support   │ Manual environment switch   ║
+ ╠═══════════════════════╪════════════════════════════════╪═══════════════════════════╣
+ ║ 80. Multi-Pipeline    │ Share tables via LIVE.<name>   │ Manual orchestration code  ║
+ ║                       │ Databricks Workflows native    │ Custom dependency DAG       ║
+ ╚═══════════════════════╩════════════════════════════════╩═══════════════════════════╝
+ ```
 
 ```python
 
 ```
-### Key Takeaways
 
-1. **Lakeflow = Declarative**: You describe *what* you want; the framework handles *how*.
-   Manual approaches require explicit orchestration, checkpointing, and error handling.
+ ### Key Takeaways
 
-2. **Community Edition Reality**: Everything Lakeflow does can be replicated manually with
-   Structured Streaming + Delta Lake + custom monitoring. The manual approach teaches you
-   what Lakeflow automates — valuable for understanding and debugging.
+ 1. **Lakeflow = Declarative**: You describe *what* you want; the framework handles *how*.
+    Manual approaches require explicit orchestration, checkpointing, and error handling.
 
-3. **Quality First**: Lakeflow's expectation framework is its killer feature. The manual
-   equivalent requires careful implementation of filtering, logging, and alerting.
+ 2. **Community Edition Reality**: Everything Lakeflow does can be replicated manually with
+    Structured Streaming + Delta Lake + custom monitoring. The manual approach teaches you
+    what Lakeflow automates — valuable for understanding and debugging.
 
-4. **CDC is the hardest**: Lakeflow's `AUTO CDC INTO` eliminates 70+ lines of MERGE logic
-   for SCD Type 2. Understanding the manual approach makes you appreciate the abstraction.
+ 3. **Quality First**: Lakeflow's expectation framework is its killer feature. The manual
+    equivalent requires careful implementation of filtering, logging, and alerting.
 
-5. **Multi-pipeline thinking**: Even without Lakeflow, the pattern of splitting pipelines
-   by medallion layer (bronze → silver → gold) is best practice for maintainability.
+ 4. **CDC is the hardest**: Lakeflow's `AUTO CDC INTO` eliminates 70+ lines of MERGE logic
+    for SCD Type 2. Understanding the manual approach makes you appreciate the abstraction.
+
+ 5. **Multi-pipeline thinking**: Even without Lakeflow, the pattern of splitting pipelines
+    by medallion layer (bronze → silver → gold) is best practice for maintainability.
 
 ```python
 
 ```
----
-## Self-Assessment Checklist
 
-After completing this notebook, you should be able to:
+ ---
+ ## Self-Assessment Checklist
 
-- [ ] **Concept 71**: Write the same pipeline in both Python decorator syntax AND SQL syntax
-  and explain when to prefer each.
-- [ ] **Concept 72**: Distinguish streaming tables from materialized views and implement
-  manual equivalents for each in Community Edition.
-- [ ] **Concept 73**: Implement data quality rules with warn/drop/fail semantics both via
-  Lakeflow expectations and via a manual ExpectationFramework class.
-- [ ] **Concept 74**: Create test fixtures, write assertion-based pipeline tests, and
-  explain the difference between development and production modes.
-- [ ] **Concept 75**: Build a PipelineRunTracker that logs execution metadata, query run
-  history, and explain how Lakeflow's event log simplifies monitoring.
-- [ ] **Concept 76**: Configure both triggered (availableNow) and continuous (processingTime)
-  pipelines and articulate the cost/latency tradeoffs.
-- [ ] **Concept 77**: Implement manual SCD Type 2 with MERGE, sequence-based deduplication,
-  and explain how `AUTO CDC INTO` eliminates this boilerplate.
-- [ ] **Concept 78**: Build a dead letter queue that captures bad records with error
-  categorization and retry logic — and explain how Lakeflow's `expect_or_drop` simplifies this.
-- [ ] **Concept 79**: Create environment-aware pipeline configurations and demonstrate
-  the same pipeline logic running across dev/staging/prod with different behaviors.
-- [ ] **Concept 80**: Design a multi-pipeline architecture with dependency management,
-  implement a simple orchestrator, and explain when to split vs. keep pipelines together.
+ After completing this notebook, you should be able to:
 
----
+ - [ ] **Concept 71**: Write the same pipeline in both Python decorator syntax AND SQL syntax
+   and explain when to prefer each.
+ - [ ] **Concept 72**: Distinguish streaming tables from materialized views and implement
+   manual equivalents for each in Community Edition.
+ - [ ] **Concept 73**: Implement data quality rules with warn/drop/fail semantics both via
+   Lakeflow expectations and via a manual ExpectationFramework class.
+ - [ ] **Concept 74**: Create test fixtures, write assertion-based pipeline tests, and
+   explain the difference between development and production modes.
+ - [ ] **Concept 75**: Build a PipelineRunTracker that logs execution metadata, query run
+   history, and explain how Lakeflow's event log simplifies monitoring.
+ - [ ] **Concept 76**: Configure both triggered (availableNow) and continuous (processingTime)
+   pipelines and articulate the cost/latency tradeoffs.
+ - [ ] **Concept 77**: Implement manual SCD Type 2 with MERGE, sequence-based deduplication,
+   and explain how `AUTO CDC INTO` eliminates this boilerplate.
+ - [ ] **Concept 78**: Build a dead letter queue that captures bad records with error
+   categorization and retry logic — and explain how Lakeflow's `expect_or_drop` simplifies this.
+ - [ ] **Concept 79**: Create environment-aware pipeline configurations and demonstrate
+   the same pipeline logic running across dev/staging/prod with different behaviors.
+ - [ ] **Concept 80**: Design a multi-pipeline architecture with dependency management,
+   implement a simple orchestrator, and explain when to split vs. keep pipelines together.
 
-### Resources
-- Databricks DLT Documentation: https://docs.databricks.com/en/delta-live-tables/index.html
-- Lakeflow Blog (March 2025): https://www.databricks.com/blog/introducing-lakeflow
-- Structured Streaming Guide: https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html
-- Delta Lake MERGE: https://docs.delta.io/latest/delta-update.html#upsert-into-a-table-using-merge
+ ---
+
+ ### Resources
+ - Databricks DLT Documentation: https://docs.databricks.com/en/delta-live-tables/index.html
+ - Lakeflow Blog (March 2025): https://www.databricks.com/blog/introducing-lakeflow
+ - Structured Streaming Guide: https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html
+ - Delta Lake MERGE: https://docs.delta.io/latest/delta-update.html#upsert-into-a-table-using-merge
 
 ```python
 

@@ -1109,10 +1109,8 @@ print("CONCEPT 29: MERGE INTO & Upsert Patterns")
 print("=" * 60)
 
 # --- Create Delta tables for the MERGE demo ---
-delta_output_path = "/tmp/retailco_merge_demo"
-
 # Clean up any prior runs
-dbutils.fs.rm(delta_output_path, True)
+spark.sql("DROP TABLE IF EXISTS default.customer_dim")
 print("Cleaned up prior output location")
 
 # --- Step 1: Create the target dimension table (customer_dim) ---
@@ -1130,7 +1128,7 @@ target_df = customers_df \
 target_df.write \
     .format("delta") \
     .mode("overwrite") \
-    .saveAsTable("customer_dim")
+    .saveAsTable("default.customer_dim")
 
 print("customer_dim table created")
 spark.table("customer_dim").select("customer_id", "name", "region", "loyalty_tier", "is_active").show(5)
@@ -1258,8 +1256,8 @@ print("=" * 60)
 print("CONCEPT 30: Table Constraints & Generated Columns")
 print("=" * 60)
 
-delta_path = "/tmp/retailco_constraints_demo/"
-dbutils.fs.rm(delta_path, True)
+spark.sql("DROP TABLE IF EXISTS default.product_catalog")
+spark.sql("DROP TABLE IF EXISTS default.orders_with_metrics")
 
 # ==========================================================================
 # 1. CREATE TABLE with CHECK, NOT NULL, and Generated Columns
@@ -1286,7 +1284,6 @@ spark.sql("""
         CONSTRAINT valid_sku_prefix CHECK (sku LIKE 'SKU-%')
     )
     USING delta
-    LOCATION '/tmp/retailco_constraints_demo/product_catalog'
 """)
 print("product_catalog table created with constraints")
 
@@ -1440,7 +1437,6 @@ spark.sql("""
         CONSTRAINT reasonable_tax CHECK (tax_rate BETWEEN 0 AND 0.25)
     )
     USING delta
-    LOCATION '/tmp/retailco_constraints_demo/orders_with_metrics'
 """)
 
 spark.sql("""

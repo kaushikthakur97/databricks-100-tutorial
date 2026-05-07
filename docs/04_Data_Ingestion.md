@@ -1,28 +1,24 @@
-%md
-# 04 — Data Ingestion: Concepts 31–40
+ # 04 — Data Ingestion: Concepts 31–40
 
-**Objective:** Master data ingestion patterns in the Databricks Lakehouse — from batch file loads through incremental streaming, medallion architecture, idempotent pipelines, and slowly changing dimensions.
+ **Objective:** Master data ingestion patterns in the Databricks Lakehouse — from batch file loads through incremental streaming, medallion architecture, idempotent pipelines, and slowly changing dimensions.
 
-**Scope:** Concepts 31 through 40 of the Databricks Data Engineer learning path.
+ **Scope:** Concepts 31 through 40 of the Databricks Data Engineer learning path.
 
-**Target Platform:** Databricks Community Edition (single‑node, Unity Catalog not available). Where Community Edition lacks a feature, we explain the theory and provide a manual work‑around.
+ **Target Platform:** Databricks (serverless‑compute compatible). File‑based operations use managed tables. Where a feature requires full platform (Unity Catalog, cloud notifications), we explain the theory and provide a managed‑table alternative.
+
+ > **Serverless note:** This notebook is adapted for serverless compute. All `dbutils.fs.*` operations and `dbfs:/FileStore/` paths have been replaced with managed tables and `spark.sql()` calls.
 
 ```python
 
 ```
-%md
-## Environment Setup
 
-Create the synthetic datasets and helper functions used throughout the notebook.
+ ## Environment Setup
+
+ Create the synthetic datasets and helper functions used throughout the notebook.
 
 ```python
 
-import os
 import time
-import shutil
-import json
-import csv
-import uuid
 from datetime import datetime, date, timedelta
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
@@ -46,636 +42,738 @@ print(f"Database      : {spark.catalog.currentDatabase()}")
 print("Ready.")
 
 ```
+
 ```python
 
 ```
-%md
-## Utility — Generate Synthetic Retail Data
+
+ ## Utility — Generate Synthetic Retail Data (Managed Tables)
+
+ Data is generated directly as Spark DataFrames and written to managed Delta tables — no local files, no DBFS operations.
 
 ```python
 
-def generate_sales_csv(output_dir, num_files=3, rows_per_file=100):
-    """Generate synthetic retail sales CSVs with a realistic schema."""
+def generate_sales_df(num_rows=750):
+    """Generate synthetic retail sales data as a Spark DataFrame."""
     from random import randint, choice, uniform, seed
+    import uuid
     seed(42)
     categories = ["Electronics", "Clothing", "Home", "Books", "Sports"]
     regions    = ["North", "South", "East", "West"]
     statuses   = ["COMPLETED", "PENDING", "CANCELLED", "RETURNED"]
 
-    os.makedirs(output_dir, exist_ok=True)
-    files_created = []
+    data = []
+    for _ in range(num_rows):
+        qty    = randint(1, 5)
+        price  = round(uniform(5.0, 500.0), 2)
+        data.append((
+            str(uuid.uuid4()),
+            (date.today() - timedelta(days=randint(0, 60))).isoformat(),
+            f"product_{randint(1, 50)}",
+            choice(categories),
+            qty,
+            price,
+            round(qty * price, 2),
+            choice(regions),
+            choice(statuses)
+        ))
 
-    for f in range(num_files):
-        file_path = os.path.join(output_dir, f"sales_{f:04d}.csv")
-        with open(file_path, "w", newline="") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["transaction_id","transaction_date","product_name","category",
-                             "quantity","unit_price","total_amount","region","status"])
-            for i in range(rows_per_file):
-                qty    = randint(1, 5)
-                price  = round(uniform(5.0, 500.0), 2)
-                writer.writerow([
-                    str(uuid.uuid4()),
-                    (date.today() - timedelta(days=randint(0, 60))).isoformat(),
-                    f"product_{randint(1, 50)}",
-                    choice(categories),
-                    qty,
-                    price,
-                    round(qty * price, 2),
-                    choice(regions),
-                    choice(statuses)
-                ])
-        files_created.append(file_path)
-
-    return files_created
+    schema = T.StructType([
+        T.StructField("transaction_id",   T.StringType()),
+        T.StructField("transaction_date", T.StringType()),
+        T.StructField("product_name",     T.StringType()),
+        T.StructField("category",         T.StringType()),
+        T.StructField("quantity",         T.IntegerType()),
+        T.StructField("unit_price",       T.DoubleType()),
+        T.StructField("total_amount",     T.DoubleType()),
+        T.StructField("region",           T.StringType()),
+        T.StructField("status",           T.StringType()),
+    ])
+    return spark.createDataFrame(data, schema=schema)
 
 
-def generate_customer_csv(output_dir, num_files=1, rows_per_file=50):
-    """Generate synthetic customer dimension data (for SCD demos)."""
+def generate_customer_df(num_rows=50):
+    """Generate synthetic customer dimension data as a Spark DataFrame."""
     from random import randint, choice, seed
     seed(123)
     cities  = ["New York","Los Angeles","Chicago","Houston","Phoenix"]
     states  = ["NY","CA","IL","TX","AZ"]
     streets = ["Main St","Oak Ave","Elm Rd","Pine Blvd","Maple Dr"]
 
-    os.makedirs(output_dir, exist_ok=True)
-    files = []
-    for f in range(num_files):
-        fp = os.path.join(output_dir, f"customers_{f:04d}.csv")
-        with open(fp, "w", newline="") as fh:
-            w = csv.writer(fh)
-            w.writerow(["customer_id","first_name","last_name","email","phone","city","state","street_address","zip_code"])
-            for i in range(rows_per_file):
-                idx = randint(0, len(cities)-1)
-                cust_id = f"CUST-{randint(1000, 9999)}"
-                w.writerow([
-                    cust_id,
-                    f"first_{randint(1,99)}",
-                    f"last_{randint(1,99)}",
-                    f"user{randint(1,999)}@example.com",
-                    f"555-{randint(1000,9999)}",
-                    cities[idx],
-                    states[idx],
-                    f"{randint(1,999)} {choice(streets)}",
-                    f"{randint(10000,99999)}"
-                ])
-        files.append(fp)
-    return files
+    data = []
+    for _ in range(num_rows):
+        idx = randint(0, len(cities)-1)
+        cust_id = f"CUST-{randint(1000, 9999)}"
+        data.append((
+            cust_id,
+            f"first_{randint(1,99)}",
+            f"last_{randint(1,99)}",
+            f"user{randint(1,999)}@example.com",
+            f"555-{randint(1000,9999)}",
+            cities[idx],
+            states[idx],
+            f"{randint(1,999)} {choice(streets)}",
+            f"{randint(10000,99999)}"
+        ))
 
-
-def upload_dir_to_dbfs(local_dir, dbfs_dir):
-    """Copy a local directory into DBFS."""
-    dbutils.fs.mkdirs(dbfs_dir)
-    for fname in os.listdir(local_dir):
-        local_path  = os.path.join(local_dir, fname)
-        dbfs_path   = f"{dbfs_dir}/{fname}"
-        dbutils.fs.cp(f"file://{local_path}", dbfs_path)
+    schema = T.StructType([
+        T.StructField("customer_id",   T.StringType()),
+        T.StructField("first_name",    T.StringType()),
+        T.StructField("last_name",     T.StringType()),
+        T.StructField("email",         T.StringType()),
+        T.StructField("phone",         T.StringType()),
+        T.StructField("city",          T.StringType()),
+        T.StructField("state",         T.StringType()),
+        T.StructField("street_address",T.StringType()),
+        T.StructField("zip_code",      T.StringType()),
+    ])
+    return spark.createDataFrame(data, schema=schema)
 
 ```
-```python
-
-```
-%md
-## Generate Datasets & Stage in DBFS
-
-```python
-
-# Generate in local /tmp then copy to DBFS
-SALES_IN  = "/tmp/sales_input"
-CUSTOMER_IN = "/tmp/customer_input"
-
-generate_sales_csv(SALES_IN, num_files=5, rows_per_file=150)
-generate_customer_csv(CUSTOMER_IN, num_files=1, rows_per_file=50)
-
-# Upload into DBFS FileStore (Community Edition safe)
-DBFS_SALES     = "dbfs:/FileStore/ingestion_demo/sales"
-DBFS_CUSTOMERS = "dbfs:/FileStore/ingestion_demo/customers"
-dbutils.fs.rm(DBFS_SALES,         recurse=True)
-dbutils.fs.rm(DBFS_CUSTOMERS,     recurse=True)
-
-upload_dir_to_dbfs(SALES_IN,  DBFS_SALES)
-upload_dir_to_dbfs(CUSTOMER_IN, DBFS_CUSTOMERS)
-
-print("Files in DBFS sales directory:")
-display(dbutils.fs.ls(DBFS_SALES))
-
-```
-```python
-
-```
-%md
----
-## Concept 31 — COPY INTO vs. Auto Loader
-
-**COPY INTO** — one‑shot batch ingestion, great for ad‑hoc or scheduled loads.
-**Auto Loader** — continuous / incremental ingestion with schema evolution and exactly‑once guarantees.
-
-| Feature             | COPY INTO                    | Auto Loader                         |
-|---------------------|------------------------------|-------------------------------------|
-| Execution model     | SQL statement (batch)        | Structured Streaming source         |
-| Idempotency         | Built‑in (metadata tracking) | Checkpoint + directory listing      |
-| Schema evolution    | Manual                       | Automatic (cloudFiles options)      |
-| Rescued data        | No                           | Yes                                 |
-| Community Edition   | Yes                          | Limited (directory listing works)   |
-
----
 
 ```python
 
 ```
-%md
-### 31‑A  COPY INTO — Idempotent Batch Load
+
+ ## Generate Core Datasets — Write to Managed Tables
+
+ All source data is created as managed Delta tables. No `dbutils.fs` or `dbfs:/FileStore/` paths are used.
 
 ```python
 
-spark.sql(f"""
-  COPY INTO ingestion_demo.sales_raw_bronze
-  FROM '{DBFS_SALES}'
-  FILEFORMAT = CSV
-  FORMAT_OPTIONS ('header' = 'true', 'inferSchema' = 'true')
-  COPY_OPTIONS ('mergeSchema' = 'true')
+# Drop previously created source tables (if re-running)
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.sales_raw_bronze")
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.customers")
+
+# Generate and write sales data
+sales_df = generate_sales_df(num_rows=750) \
+    .withColumn("_ingested_at", F.current_timestamp())
+
+sales_df.write.mode("overwrite").format("delta").saveAsTable("ingestion_demo.sales_raw_bronze")
+
+# Generate and write customer data
+customer_df = generate_customer_df(num_rows=50) \
+    .withColumn("created_at", F.current_timestamp())
+
+customer_df.write.mode("overwrite").format("delta").saveAsTable("ingestion_demo.customers")
+
+print(f"Sales table rows      : {spark.table('ingestion_demo.sales_raw_bronze').count()}")
+print(f"Customer table rows   : {spark.table('ingestion_demo.customers').count()}")
+
+print("\nSales table schema:")
+spark.table("ingestion_demo.sales_raw_bronze").printSchema()
+
+print("\nSample sales data:")
+display(spark.table("ingestion_demo.sales_raw_bronze").limit(5))
+
+```
+
+```python
+
+```
+
+ ---
+ ## Concept 31 — COPY INTO vs. Auto Loader
+
+ **COPY INTO** — one‑shot batch ingestion, great for ad‑hoc or scheduled loads.
+ **Auto Loader** — continuous / incremental ingestion with schema evolution and exactly‑once guarantees.
+
+ | Feature             | COPY INTO                    | Auto Loader                         |
+ |---------------------|------------------------------|-------------------------------------|
+ | Execution model     | SQL statement (batch)        | Structured Streaming source         |
+ | Idempotency         | Built‑in (metadata tracking) | Checkpoint + directory listing      |
+ | Schema evolution    | Manual                       | Automatic (cloudFiles options)      |
+ | Rescued data        | No                           | Yes                                 |
+ | Serverless          | Requires cloud storage path  | Requires full platform              |
+
+ ---
+
+```python
+
+```
+
+ ### 31‑A  COPY INTO — Idempotent Batch Load
+
+ `COPY INTO` reads CSV/JSON/Parquet files from cloud storage and loads them into a Delta table. It tracks which files have already been ingested, making it idempotent.
+
+ **On serverless compute** we demonstrate the equivalent pattern using DataFrame operations on managed tables, since `dbutils.fs` paths are unavailable.
+
+```python
+
+# ---- COPY INTO conceptual syntax (requires cloud storage path) ----
+# spark.sql("""
+#   COPY INTO ingestion_demo.sales_raw_bronze
+#   FROM 's3://my-bucket/sales/'
+#   FILEFORMAT = CSV
+#   FORMAT_OPTIONS ('header' = 'true', 'inferSchema' = 'true')
+#   COPY_OPTIONS ('mergeSchema' = 'true')
+# """)
+
+# ---- Serverless equivalent: write directly to managed table ----
+# The source data is already in a DataFrame from generate_sales_df().
+# We write it to a Delta table, which is the functional equivalent of COPY INTO.
+
+# Re-generate fresh data for this demo
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.copyinto_demo")
+
+fresh_sales = generate_sales_df(num_rows=500)
+
+fresh_sales.write.mode("overwrite").format("delta").saveAsTable("ingestion_demo.copyinto_demo")
+
+print("First load — equivalent to initial COPY INTO:")
+print(f"  Rows loaded: {spark.table('ingestion_demo.copyinto_demo').count()}")
+
+# Demonstrate idempotency: write again with MERGE (simulates idempotent reload)
+# In real COPY INTO, this is handled automatically via tracked file metadata
+fresh_sales.createOrReplaceTempView("_copyinto_source")
+
+spark.sql("""
+  MERGE INTO ingestion_demo.copyinto_demo AS target
+  USING _copyinto_source AS source
+  ON target.transaction_id = source.transaction_id
+  WHEN NOT MATCHED THEN INSERT *
 """)
 
-# Run it again — COPY INTO tracks loaded files, so zero new rows are ingested
-spark.sql(f"""
-  COPY INTO ingestion_demo.sales_raw_bronze
-  FROM '{DBFS_SALES}'
-  FILEFORMAT = CSV
-  FORMAT_OPTIONS ('header' = 'true', 'inferSchema' = 'true')
-  COPY_OPTIONS ('mergeSchema' = 'true')
+print("\nSecond load — equivalent to re-running COPY INTO (idempotent):")
+print(f"  Rows after merge: {spark.table('ingestion_demo.copyinto_demo').count()}")
+
+```
+
+```python
+
+```
+
+ **COPY INTO idempotency explained:**
+
+ The command stores a list of already‑ingested file names in `_metadata`. When re‑run it skips previously loaded files automatically. This is the simplest way to achieve exactly‑once ingestion for batch workloads. On serverless compute, using `MERGE` on a natural key (e.g. `transaction_id`) achieves the same idempotent guarantee.
+
+```python
+
+```
+
+ ### 31‑B  Auto Loader — Conceptual Walk‑through
+
+ Auto Loader (`cloudFiles` source) is a *Structured Streaming* source that continuously discovers new files. It has two modes:
+
+ 1. **File notification mode** — relies on cloud queue services (SQS, Event Grid). Lowest latency but requires cloud setup. **Not available on serverless without infrastructure configuration.**
+ 2. **Directory listing mode** — periodically lists the directory and processes new files. Simpler, no external services needed. Requires full platform.
+
+ > **Serverless note:** Auto Loader requires full Databricks platform. We show the canonical code pattern below and provide a managed‑table equivalent using Structured Streaming from a `rate` source.
+
+```python
+
+# ---- Auto Loader canonical syntax (requires full platform) ----
+print("""
+# Conceptual Auto Loader pattern:
+#
+# stream = (spark
+#     .readStream
+#     .format("cloudFiles")
+#     .option("cloudFiles.format", "csv")
+#     .option("header", "true")
+#     .option("inferSchema", "true")
+#     .option("cloudFiles.schemaLocation", "/checkpoints/schema")
+#     .option("cloudFiles.includeExistingFiles", "true")
+#     .load("/path/to/source/directory")
+#     .writeStream
+#     .format("delta")
+#     .option("checkpointLocation", "/checkpoints/stream")
+#     .outputMode("append")
+#     .trigger(availableNow=True)
+#     .toTable("target_table")
+# )
 """)
 
-print("Row count after two COPY INTO runs (should be same — no duplicates):")
-display(spark.table("ingestion_demo.sales_raw_bronze").count())
-
-```
-```python
-
-```
-%md
-**COPY INTO idempotency explained:**
-
-The command stores a list of already‑ingested file names in `_metadata`.  When re‑run it skips previously loaded files automatically.  This is the simplest way to achieve exactly‑once ingestion for batch workloads.
-
-```python
-
-```
-%md
-### 31‑B  Auto Loader — Conceptual Walk‑through
-
-Auto Loader (`cloudFiles` source) is a *Structured Streaming* source that continuously discovers new files.  It has two modes:
-
-1. **File notification mode** — relies on cloud queue services (SQS, Event Grid).  Lowest latency but requires cloud setup.  **Not available in Community Edition.**
-2. **Directory listing mode** — periodically lists the directory and processes new files.  Simpler, no external services needed.  Works in Community Edition for demonstration.
-
-> **Community Edition note:** Directory listing Auto Loader *does* work, but CE’s single‑node constraint limits true streaming.  We show the code pattern and then provide a manual batch equivalent.
-
-```python
-
-# ---- Auto Loader (directory listing mode — CE compatible) ----
-# Note: run this in a separate cell. CE single-node limits parallelism.
-
-def auto_loader_demo_delta():
-    spark.sql("DROP TABLE IF EXISTS ingestion_demo.autoloader_demo")
-    checkpoint = "dbfs:/FileStore/ingestion_demo/_checkpoints/autoloader"
-    dbutils.fs.rm(checkpoint, recurse=True)
+# ---- Serverless alternative: Structured Streaming from rate source ----
+def rate_stream_demo():
+    """Simulate Auto Loader with rate source and managed tables."""
+    spark.sql("DROP TABLE IF EXISTS ingestion_demo.autoloader_rate_demo")
 
     stream = (spark
         .readStream
-        .format("cloudFiles")
-        .option("cloudFiles.format", "csv")
-        .option("header", "true")
-        .option("inferSchema", "true")
-        .option("cloudFiles.schemaLocation", checkpoint)
-        .option("cloudFiles.includeExistingFiles", "true")
-        .load(DBFS_SALES)
+        .format("rate")
+        .option("rowsPerSecond", 5)
+        .load()
+        .withColumn("transaction_id", F.concat(F.lit("txn_"), F.col("value").cast("string")))
+        .withColumn("total_amount", F.round(F.rand() * 500, 2))
+        .withColumn("category", F.element_at(
+            F.array([F.lit("Electronics"),F.lit("Clothing"),F.lit("Home"),F.lit("Books"),F.lit("Sports")]),
+            (F.abs(F.hash(F.col("value"))) % 5 + 1).cast("int")
+        ))
         .writeStream
         .format("delta")
-        .option("checkpointLocation", checkpoint)
         .outputMode("append")
-        .trigger(availableNow=True)
-        .toTable("ingestion_demo.autoloader_demo")
+        .trigger(processingTime="3 seconds")
+        .option("checkpointLocation", "dbfs:/user/hive/warehouse/ingestion_demo.db/_checkpoints/rate_stream")
+        .toTable("ingestion_demo.autoloader_rate_demo")
     )
-    stream.awaitTermination()
+    return stream
 
 try:
-    auto_loader_demo_delta()
-    print("Auto Loader (availableNow) completed.")
-    display(spark.table("ingestion_demo.autoloader_demo").count())
+    s = rate_stream_demo()
+    import time as _time
+    _time.sleep(12)
+    s.stop()
+    print(f"Rate stream rows ingested: {spark.table('ingestion_demo.autoloader_rate_demo').count()}")
+    display(spark.table("ingestion_demo.autoloader_rate_demo").limit(10))
 except Exception as e:
-    print(f"Auto Loader not available in this environment: {e}")
-    print("Falling back to manual batch incremental (see below).")
+    print(f"Rate stream not available in this environment: {e}")
 
 ```
+
 ```python
 
 ```
-%md
-### 31‑C  Manual Incremental Batch (Community Edition alternative)
+
+ ### 31‑C  Manual Incremental Batch (Table‑Based, Serverless Alternative)
+
+ Instead of tracking files on disk, we track **batch IDs** in a metadata table. This mirrors the Auto Loader pattern using only managed tables.
 
 ```python
 
-def manual_incremental_load(data_dir, target_table, ingested_files_table, checkpoint_dir):
+def table_based_incremental(source_table, target_table, meta_table, batch_id_col="batch_id"):
     """
-    Manual equivalent of Auto Loader:
-    1. List all files in `data_dir`
-    2. Subtract files already recorded in `ingested_files_table`
-    3. Read only new files with Spark
-    4. Append to `target_table`
-    5. Record newly ingested files in `ingested_files_table`
+    Managed‑table equivalent of incremental file ingestion:
+    1. Query distinct batch_ids from the source table
+    2. Subtract batches already recorded in the meta table
+    3. Append only new batches to the target table
+    4. Record newly ingested batches in the meta table
     """
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {ingested_files_table} "
-              "(path STRING, ingested_at TIMESTAMP) USING delta")
-    
-    # Files on disk
-    all_files = set(f.path for f in dbutils.fs.ls(data_dir) if f.name.endswith(".csv"))
-    
-    # Already ingested
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {meta_table} "
+              "(batch_id STRING, ingested_at TIMESTAMP) USING delta")
+
+    all_batches = set(
+        r[0] for r in spark.table(source_table).select(batch_id_col).distinct().collect()
+        if r[0] is not None
+    )
+
     try:
-        already = set(r.path for r in spark.table(ingested_files_table).select("path").collect())
+        already = set(r.batch_id for r in spark.table(meta_table).select("batch_id").collect())
     except Exception:
         already = set()
-    
-    new_files = sorted(all_files - already)
-    if not new_files:
-        print("No new files to ingest.")
+
+    new_batches = sorted(all_batches - already)
+    if not new_batches:
+        print("No new batches to ingest.")
         return 0
 
-    print(f"Ingesting {len(new_files)} new file(s): {[f.split('/')[-1] for f in new_files]}")
+    print(f"Ingesting {len(new_batches)} new batch(es): {new_batches}")
 
-    df = spark.read.option("header", "true").option("inferSchema", "true").csv(new_files)
-    df.write.mode("append").format("delta").saveAsTable(target_table)
+    source_df = spark.table(source_table).filter(F.col(batch_id_col).isin(list(new_batches)))
 
-    # Record ingestions
-    now = datetime.now().isoformat()
-    ingest_df = spark.createDataFrame([(f, now) for f in new_files], "path STRING, ingested_at TIMESTAMP")
-    ingest_df.write.mode("append").format("delta").saveAsTable(ingested_files_table)
+    if spark.catalog.tableExists(target_table):
+        source_df.write.mode("append").format("delta").saveAsTable(target_table)
+    else:
+        source_df.write.mode("overwrite").format("delta").saveAsTable(target_table)
 
-    return df.count()
+    now = datetime.now()
+    ingest_df = spark.createDataFrame(
+        [(b, now) for b in new_batches], "batch_id STRING, ingested_at TIMESTAMP"
+    )
+    ingest_df.write.mode("append").format("delta").saveAsTable(meta_table)
 
-# First run — ingests all files
-cnt = manual_incremental_load(
-    DBFS_SALES,
-    "ingestion_demo.sales_manual_incremental",
-    "ingestion_demo._ingested_files",
-    "dbfs:/FileStore/ingestion_demo/_manual_checkpoints"
+    return source_df.count()
+
+
+# ---- Create a batched source table (simulates multiple file drops) ----
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.sales_batched_source")
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.sales_incremental_target")
+spark.sql("DROP TABLE IF EXISTS ingestion_demo._ingested_batches")
+
+# Batch 1 — 400 rows
+batch1 = generate_sales_df(num_rows=400).withColumn("batch_id", F.lit("batch_001"))
+batch2 = generate_sales_df(num_rows=350).withColumn("batch_id", F.lit("batch_002"))
+
+batch1.unionByName(batch2).write.mode("overwrite").format("delta") \
+    .saveAsTable("ingestion_demo.sales_batched_source")
+
+print(f"Source table has {spark.table('ingestion_demo.sales_batched_source').count()} rows across 2 batches")
+
+# First run — ingests all batches
+cnt = table_based_incremental(
+    "ingestion_demo.sales_batched_source",
+    "ingestion_demo.sales_incremental_target",
+    "ingestion_demo._ingested_batches"
 )
 print(f"First run ingested {cnt} rows.")
 
-# Second run — should be zero (all files already tracked)
-cnt2 = manual_incremental_load(
-    DBFS_SALES,
-    "ingestion_demo.sales_manual_incremental",
-    "ingestion_demo._ingested_files",
-    "dbfs:/FileStore/ingestion_demo/_manual_checkpoints"
+# Second run — should be zero (all batches already tracked)
+cnt2 = table_based_incremental(
+    "ingestion_demo.sales_batched_source",
+    "ingestion_demo.sales_incremental_target",
+    "ingestion_demo._ingested_batches"
 )
-print(f"Second run ingested {cnt2} rows.")
+print(f"Second run ingested {cnt2} rows (expect 0).")
 
 ```
+
 ```python
 
-# Generate a new file to demonstrate incremental pickup
+# ---- Add a new batch and re-run to demonstrate incremental pickup ----
 import uuid
-new_batch_dir = "/tmp/sales_new"
-os.makedirs(new_batch_dir, exist_ok=True)
-fp = os.path.join(new_batch_dir, f"sales_new_{uuid.uuid4().hex[:8]}.csv")
-with open(fp, "w", newline="") as fh:
-    w = csv.writer(fh)
-    w.writerow(["transaction_id","transaction_date","product_name","category","quantity","unit_price","total_amount","region","status"])
-    w.writerow([str(uuid.uuid4()), date.today().isoformat(), "product_99", "Electronics", 2, 299.99, 599.98, "North", "COMPLETED"])
-    w.writerow([str(uuid.uuid4()), date.today().isoformat(), "product_88", "Books",      1,  24.50,  24.50, "South", "COMPLETED"])
 
-dbutils.fs.cp(f"file:{fp}", f"{DBFS_SALES}/{os.path.basename(fp)}")
+batch3 = generate_sales_df(num_rows=100).withColumn("batch_id", F.lit("batch_003"))
+batch3.write.mode("append").format("delta").saveAsTable("ingestion_demo.sales_batched_source")
 
-cnt3 = manual_incremental_load(
-    DBFS_SALES,
-    "ingestion_demo.sales_manual_incremental",
-    "ingestion_demo._ingested_files",
-    "dbfs:/FileStore/ingestion_demo/_manual_checkpoints"
+print(f"Appended batch_003 — source now has {spark.table('ingestion_demo.sales_batched_source').count()} rows")
+
+cnt3 = table_based_incremental(
+    "ingestion_demo.sales_batched_source",
+    "ingestion_demo.sales_incremental_target",
+    "ingestion_demo._ingested_batches"
 )
-print(f"Third run (after new file added) ingested {cnt3} rows.")
+print(f"Third run (after new batch added) ingested {cnt3} rows (expect 100).")
 
 ```
-```python
-
-```
-%md
-**Key take‑away (Concept 31):**
-- `COPY INTO` is your go‑to for batch / scheduled loads. Idempotent out of the box.
-- Auto Loader provides continuous ingestion with schema evolution.  Use `availableNow` for batch‑like semantics.
-- The manual file‑tracking pattern above gives you the same guarantee in environments without Auto Loader.
 
 ```python
 
 ```
-%md
----
-## Concept 32 — File Formats in the Lakehouse
 
-| Format  | Row/Col | Compress | Splittable | Schema | Human Readable | Best For                               |
-|---------|---------|----------|------------|--------|----------------|----------------------------------------|
-| CSV     | Row     | Low      | Partially  | Loose  | Yes            | Exchange, simple logs                  |
-| JSON    | Row     | Low      | No         | Loose  | Yes            | Web APIs, nested data                  |
-| Avro    | Row     | Good     | Yes        | Strong | No             | Kafka, streaming interchange           |
-| Parquet | Column  | Excellent| Yes        | Strong | No             | Analytics, predicate push‑down         |
-| Delta   | Column  | Excellent| Yes        | Strong | No             | **Lakehouse default** — ACID, time travel |
-
----
+ **Key take‑away (Concept 31):**
+ - `COPY INTO` is your go‑to for batch / scheduled loads. Idempotent out of the box.
+ - Auto Loader provides continuous ingestion with schema evolution. Use `availableNow` for batch‑like semantics.
+ - The table‑based batch‑tracking pattern above gives you the same guarantee in environments without file‑level access.
 
 ```python
 
 ```
-%md
-### 32‑A  Write Identical Data in Five Formats & Compare Sizes
+
+ ---
+ ## Concept 32 — File Formats in the Lakehouse
+
+ | Format  | Row/Col | Compress | Splittable | Schema | Human Readable | Best For                               |
+ |---------|---------|----------|------------|--------|----------------|----------------------------------------|
+ | CSV     | Row     | Low      | Partially  | Loose  | Yes            | Exchange, simple logs                  |
+ | JSON    | Row     | Low      | No         | Loose  | Yes            | Web APIs, nested data                  |
+ | Avro    | Row     | Good     | Yes        | Strong | No             | Kafka, streaming interchange           |
+ | Parquet | Column  | Excellent| Yes        | Strong | No             | Analytics, predicate push‑down         |
+ | Delta   | Column  | Excellent| Yes        | Strong | No             | **Lakehouse default** — ACID, time travel |
+
+ ---
 
 ```python
 
-base_df = spark.table("ingestion_demo.sales_raw_bronze")
+```
 
-formats = {
-    "csv":    ("csv",     {}),
-    "json":   ("json",    {}),
-    "avro":   ("avro",    {}),  # requires spark-avro package
-    "parquet":("parquet", {}),
-    "delta":  ("delta",   {}),
+ ### 32‑A  Write Identical Data in Different Formats & Compare Sizes
+
+ Instead of writing to file paths (which requires `dbutils.fs`), we write to managed tables and compare sizes via `DESCRIBE DETAIL`.
+
+```python
+
+# Use spark.range() for a clean base DataFrame
+base_df = spark.range(0, 10000) \
+    .withColumn("col_str",   F.concat(F.lit("row_"), F.col("id").cast("string"))) \
+    .withColumn("col_double",F.col("id") * 1.5) \
+    .withColumn("col_int",   (F.col("id") % 100).cast("int")) \
+    .withColumn("col_cat",   F.element_at(
+        F.array([F.lit("A"),F.lit("B"),F.lit("C"),F.lit("D"),F.lit("E")]),
+        (F.abs(F.hash(F.col("id"))) % 5 + 1).cast("int")
+    ))
+
+print(f"Base DataFrame: {base_df.count()} rows")
+base_df.show(3, truncate=False)
+
+```
+
+```python
+
+# Write to managed tables in different formats, then compare sizes
+format_configs = {
+    "csv":     ("csv",     {}),
+    "json":    ("json",    {}),
+    "parquet": ("parquet", {}),
+    "delta":   ("delta",   {}),
 }
 
-dir_prefix = "dbfs:/FileStore/ingestion_demo/format_compare/"
 size_results = []
-
-for fmt_name, (fmt_str, opts) in formats.items():
-    out_path = f"{dir_prefix}{fmt_name}"
-    dbutils.fs.rm(out_path, recurse=True)
+for fmt_name, (fmt_str, opts) in format_configs.items():
+    tbl = f"ingestion_demo.fmt_{fmt_name}"
+    spark.sql(f"DROP TABLE IF EXISTS {tbl}")
     try:
-        base_df.write.format(fmt_str).options(**opts).mode("overwrite").save(out_path)
-        total_size = 0
-        for f in dbutils.fs.ls(out_path):
-            total_size += f.size
-        size_results.append((fmt_name, total_size))
-        print(f"{fmt_name:>8} => {total_size:>10,} bytes")
+        base_df.write.format(fmt_str).options(**opts).mode("overwrite").saveAsTable(tbl)
+        detail = spark.sql(f"DESCRIBE DETAIL {tbl}").select("format", "numFiles", "sizeInBytes").first()
+        size_results.append((fmt_name, detail["numFiles"], detail["sizeInBytes"]))
+        print(f"{fmt_name:>8} => {detail['numFiles']} file(s), {detail['sizeInBytes']:>12,} bytes")
     except Exception as e:
         print(f"{fmt_name:>8} => SKIPPED ({e})")
 
+display(spark.createDataFrame(size_results, ["format", "num_files", "size_bytes"]))
+
 ```
+
 ```python
 
 ```
-%md
-### 32‑B  Read Speed Benchmark
+
+ ### 32‑B  Read Speed Benchmark
+
+ Read from managed tables (Delta and Parquet benefit from column pruning and predicate pushdown).
 
 ```python
 
 import time as _time
 
 bench_results = []
-for fmt_name, (fmt_str, _opts) in formats.items():
-    path = f"{dir_prefix}{fmt_name}"
+for fmt_name, _ in format_configs.items():
+    tbl = f"ingestion_demo.fmt_{fmt_name}"
     try:
         t0 = _time.time()
-        df = spark.read.format(fmt_str).load(path)
-        cnt = df.count()
+        cnt = spark.table(tbl).filter("col_int > 50").count()
         elapsed = _time.time() - t0
         bench_results.append((fmt_name, cnt, round(elapsed, 3)))
-        print(f"{fmt_name:>8} — {cnt} rows read in {elapsed:.3f}s")
+        print(f"{fmt_name:>8} — {cnt} rows filtered in {elapsed:.3f}s")
     except Exception as e:
         bench_results.append((fmt_name, 0, str(e)))
 
-display(spark.createDataFrame(bench_results, ["format","rows","seconds"]))
+display(spark.createDataFrame(bench_results, ["format", "rows", "seconds"]))
 
 ```
-```python
-
-```
-%md
-### 32‑C  Schema Inference Differences
-
-```python
-
-# Read the same CSV with and without inferSchema — note the data types
-df_with_infer = spark.read.option("header", "true").option("inferSchema", "true") \
-    .csv(f"{DBFS_SALES}/*.csv")
-
-df_without_infer = spark.read.option("header", "true").option("inferSchema", "false") \
-    .csv(f"{DBFS_SALES}/*.csv")
-
-print("WITH    inferSchema:")
-df_with_infer.printSchema()
-
-print("\nWITHOUT inferSchema (all strings):")
-df_without_infer.printSchema()
-
-```
-```python
-
-```
-%md
-**Why Parquet / Delta dominate the Lakehouse:**
-1. **Columnar layout** — queries that touch a few columns read only those columns, slashing I/O.
-2. **Predicate push‑down** — Parquet min/max statistics let the engine skip row groups entirely.
-3. **Compression** — snappy/gzip/zstd reduce storage 5x–20x vs CSV.
-4. **Delta adds ACID** — time travel, upserts, schema enforcement, and vacuum.
 
 ```python
 
 ```
-%md
----
-## Concept 33 — Volumes
 
-**Volumes** are Unity Catalog objects for governed, non‑tabular file storage — think of them as "managed folders" with permissions.
+ ### 32‑C  Schema Inference Differences
 
-| Volume Type   | Storage                                      | Lifecycle                    |
-|---------------|----------------------------------------------|------------------------------|
-| Managed       | Managed by Unity Catalog in the metastore    | Deleted with catalog/schema  |
-| External      | External cloud storage (S3, ADLS, GCS)       | Survives catalog/schema drop |
-
-**Community Edition limitation:** Unity Catalog is not available.  We simulate Volumes using `dbfs:/FileStore/` paths, which serve the same role in CE.
-
----
+ Compare reading from a managed CSV table vs. Delta table to highlight schema differences.
 
 ```python
 
-```
-%md
-### 33‑A  Simulating a Volume (Landing Zone) with DBFS FileStore
-
-```python
-
-LANDING_ZONE = "dbfs:/FileStore/ingestion_demo/landing_zone"
-
-# ---- 1. Upload files to the "landing zone" (simulated volume) ----
-dbutils.fs.rm(LANDING_ZONE, recurse=True)
-dbutils.fs.mkdirs(LANDING_ZONE)
-
-upload_dir_to_dbfs(SALES_IN, LANDING_ZONE)
-
-# ---- 2. List files — volume-equivalent operation ----
-print(f"Files in landing zone ({LANDING_ZONE}):")
-for f in dbutils.fs.ls(LANDING_ZONE):
-    print(f"  {f.name:40s} {f.size:>8,} bytes")
-
-# ---- 3. Read CSV directly from the landing zone ----
-landing_df = (spark.read
-    .option("header", "true")
-    .option("inferSchema", "true")
-    .csv(f"{LANDING_ZONE}/*.csv")
-)
-
-print(f"\nRows in landing zone: {landing_df.count()}")
-landing_df.select("transaction_id", "product_name", "total_amount").show(5, truncate=False)
-
-```
-```python
-
-```
-%md
-### 33‑B  Conceptual — Catalog‑Backed Volumes (Unity Catalog)
-
-If UC were available, you would create a volume with:
-```
-CREATE VOLUME my_catalog.my_schema.my_volume
-  LOCATION 's3://my-bucket/landing/';
-```
-
-Then reference files via the volume path: `/Volumes/my_catalog/my_schema/my_volume/sales.csv`
-
-| Feature                   | DBFS FileStore (CE)               | Volumes (UC)                       |
-|---------------------------|-----------------------------------|------------------------------------|
-| Permission model          | Workspace‑level                   | Fine‑grained (GRANT/REVOKE)        |
-| Lifecycle                 | Tied to workspace                 | Managed = cascade; External = n/a  |
-| Discovery                 | `dbutils.fs.ls`                   | INFORMATION_SCHEMA views           |
-| External storage support  | Manual mount                      | Direct path, governed              |
-
-```python
-
-```
-%md
----
-## Concept 34 — Auto Loader: File Discovery
-
-Auto Loader discovers new files through one of two mechanisms:
-
-1. **Directory listing** — every *N* seconds Auto Loader lists the input directory, compares against the checkpoint, and picks up new files.  Works anywhere, but latency depends on listing interval.
-2. **File notification** — Auto Loader subscribes to cloud event queues (SQS, Event Grid).  Near‑real‑time latency, but requires cloud infrastructure configuration.
-
-**Checkpoint location** tracks which files have been processed so the stream can resume from where it left off.
-
----
-
-```python
-
-```
-%md
-### 34‑A  Directory Listing Mode — Conceptual Code
-
-```python
-
-# This code pattern works in Community Edition (directory listing mode).
-# The key options:
-#   cloudFiles.format                — file format to ingest
-#   cloudFiles.useNotifications      — true = file notification, false = directory listing
-#   cloudFiles.schemaLocation        — where inferred schema is stored
-#   cloudFiles.includeExistingFiles  — whether to ingest files that pre‑date the stream
-
-def autoloader_discovery_demo():
-    checkpoint = "dbfs:/FileStore/ingestion_demo/_checkpoints/discovery_demo"
-    schema_loc = "dbfs:/FileStore/ingestion_demo/_schemas/discovery_demo"
-    dbutils.fs.rm(checkpoint, recurse=True)
-    dbutils.fs.rm(schema_loc, recurse=True)
-
-    stream = (spark.readStream
-        .format("cloudFiles")
-        .option("cloudFiles.format", "csv")
-        .option("header", "true")
-        .option("inferSchema", "true")
-        .option("cloudFiles.useNotifications", "false")   # directory listing
-        .option("cloudFiles.schemaLocation", schema_loc)
-        .option("cloudFiles.includeExistingFiles", "true")
-        .load(DBFS_SALES)
-        .writeStream
-        .format("delta")
-        .option("checkpointLocation", checkpoint)
-        .outputMode("append")
-        .trigger(availableNow=True)
-        .toTable("ingestion_demo.autoloader_discovery")
-    )
-    stream.awaitTermination()
-
+# Read the same data from CSV-format and Delta-format managed tables
 try:
-    autoloader_discovery_demo()
-    print("Stream completed.")
-    display(spark.table("ingestion_demo.autoloader_discovery").count())
+    df_csv = spark.table("ingestion_demo.fmt_csv")
+    print("CSV-managed table schema (inferred types):")
+    df_csv.printSchema()
 except Exception as e:
-    print(f"Not available: {e}")
+    print(f"CSV table not available: {e}")
+
+df_delta = spark.table("ingestion_demo.fmt_delta")
+print("\nDelta-managed table schema (strongly typed):")
+df_delta.printSchema()
 
 ```
+
 ```python
 
 ```
-%md
-### 34‑B  Manual File Discovery Loop (CE Alternative)
+
+ **Why Parquet / Delta dominate the Lakehouse:**
+ 1. **Columnar layout** — queries that touch a few columns read only those columns, slashing I/O.
+ 2. **Predicate push‑down** — Parquet min/max statistics let the engine skip row groups entirely.
+ 3. **Compression** — snappy/gzip/zstd reduce storage 5x–20x vs CSV.
+ 4. **Delta adds ACID** — time travel, upserts, schema enforcement, and vacuum.
 
 ```python
 
-def polling_discovery_loop(data_dir, target_table, poll_seconds=5, max_polls=3):
+```
+
+ ---
+ ## Concept 33 — Volumes
+
+ **Volumes** are Unity Catalog objects for governed, non‑tabular file storage — think of them as "managed folders" with permissions.
+
+ | Volume Type   | Storage                                      | Lifecycle                    |
+ |---------------|----------------------------------------------|------------------------------|
+ | Managed       | Managed by Unity Catalog in the metastore    | Deleted with catalog/schema  |
+ | External      | External cloud storage (S3, ADLS, GCS)       | Survives catalog/schema drop |
+
+ **Serverless note:** Unity Catalog Volumes are the modern replacement for DBFS FileStore. On serverless compute, managed tables serve as the landing zone — we demonstrate the pattern below.
+
+ ---
+
+```python
+
+```
+
+ ### 33‑A  Managed Table as Landing Zone (Serverless Equivalent)
+
+ Instead of uploading files to a DBFS volume, we write data directly to a managed "landing" table — then downstream processes read from it.
+
+```python
+
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.landing_zone")
+
+# Simulate dropping files into a landing zone by writing a DataFrame
+landing_df = generate_sales_df(num_rows=300) \
+    .withColumn("landed_at", F.current_timestamp()) \
+    .withColumn("_source_file", F.lit("batch_2025.csv"))
+
+landing_df.write.mode("overwrite").format("delta").saveAsTable("ingestion_demo.landing_zone")
+
+print(f"Files-equivalent rows in landing zone: {spark.table('ingestion_demo.landing_zone').count()}")
+print("\nLanding zone contents (sample):")
+display(spark.table("ingestion_demo.landing_zone").limit(5))
+
+```
+
+```python
+
+```
+
+ ### 33‑B  Conceptual — Catalog‑Backed Volumes (Unity Catalog)
+
+ If Unity Catalog were available, you would create a volume with:
+ ```
+ CREATE VOLUME my_catalog.my_schema.my_volume
+   LOCATION 's3://my-bucket/landing/';
+ ```
+
+ Then reference files via the volume path: `/Volumes/my_catalog/my_schema/my_volume/sales.csv`
+
+ | Feature                   | Managed Table (Serverless)      | Volumes (UC)                       |
+ |---------------------------|----------------------------------|------------------------------------|
+ | Permission model          | Table‑level ACL                  | Fine‑grained (GRANT/REVOKE)        |
+ | Lifecycle                 | DROP TABLE removes data         | Managed = cascade; External = n/a  |
+ | Discovery                 | `SHOW TABLES` / INFORMATION_SCHEMA | INFORMATION_SCHEMA views           |
+ | External storage support  | Managed only                     | Direct path, governed              |
+
+```python
+
+```
+
+ ---
+ ## Concept 34 — Auto Loader: File Discovery
+
+ Auto Loader discovers new files through one of two mechanisms:
+
+ 1. **Directory listing** — every *N* seconds Auto Loader lists the input directory, compares against the checkpoint, and picks up new files. Works anywhere, but latency depends on listing interval.
+ 2. **File notification** — Auto Loader subscribes to cloud event queues (SQS, Event Grid). Near‑real‑time latency, but requires cloud infrastructure configuration.
+
+ **Checkpoint location** tracks which files have been processed so the stream can resume from where it left off.
+
+ ---
+
+```python
+
+```
+
+ ### 34‑A  Auto Loader — Conceptual Code Pattern
+
+ The key options are shown below. On serverless compute this requires full platform; we provide a table‑based alternative in 34‑B.
+
+```python
+
+print("""
+# Auto Loader conceptual pattern (requires full platform):
+#
+# stream = (spark.readStream
+#     .format("cloudFiles")
+#     .option("cloudFiles.format", "csv")
+#     .option("header", "true")
+#     .option("inferSchema", "true")
+#     .option("cloudFiles.useNotifications", "false")   # directory listing
+#     .option("cloudFiles.schemaLocation", "/checkpoints/schema")
+#     .option("cloudFiles.includeExistingFiles", "true")
+#     .load("/path/to/source")
+#     .writeStream
+#     .format("delta")
+#     .option("checkpointLocation", "/checkpoints/stream")
+#     .outputMode("append")
+#     .trigger(availableNow=True)
+#     .toTable("target_table")
+# )
+""")
+
+```
+
+```python
+
+```
+
+ ### 34‑B  Table‑Based Polling Discovery Loop (Serverless Alternative)
+
+ We simulate directory‑listing polling by checking for new rows added to a source table (equivalent to new files appearing in a directory).
+
+```python
+
+def polling_discovery_loop(source_table, target_table, poll_seconds=5, max_polls=3, ts_col="created_at"):
     """
-    Simulate directory‑listing polling: check for new files every `poll_seconds`,
-    ingest them, record in metadata table.
+    Simulate directory‑listing polling: check for new rows in source_table every poll_seconds,
+    ingest them, record the max timestamp in a metadata table.
     """
     meta_table = "ingestion_demo._polling_meta"
     spark.sql(f"CREATE TABLE IF NOT EXISTS {meta_table} "
-              "(file_path STRING, ingested_at STRING) USING delta")
+              "(last_processed STRING, poll_at STRING) USING delta")
 
     for poll in range(max_polls):
-        all_files  = set(f.path for f in dbutils.fs.ls(data_dir) if f.name.endswith(".csv"))
-        ingested   = set(r.file_path for r in spark.table(meta_table).select("file_path").collect())
-        new        = sorted(all_files - ingested)
-
-        if new:
-            print(f"Poll {poll+1}: discovered {len(new)} new file(s)")
-            df = spark.read.option("header", "true").option("inferSchema", "true").csv(new)
-            df.write.mode("append").format("delta").saveAsTable(target_table)
-            now = datetime.now().isoformat()
-            spark.createDataFrame([(f, now) for f in new]) \
-                .write.mode("append").format("delta").saveAsTable(meta_table)
+        # Get last processed timestamp
+        meta = spark.table(meta_table)
+        if meta.count() > 0:
+            last_ts = meta.orderBy(F.desc("poll_at")).select("last_processed").first()[0]
         else:
-            print(f"Poll {poll+1}: no new files")
+            last_ts = "1970-01-01T00:00:00"
+
+        # Find new rows since last poll
+        new_df = spark.table(source_table).filter(F.col(ts_col) > last_ts)
+        new_count = new_df.count()
+
+        if new_count > 0:
+            print(f"Poll {poll+1}: discovered {new_count} new row(s)")
+            if spark.catalog.tableExists(target_table):
+                new_df.write.mode("append").format("delta").saveAsTable(target_table)
+            else:
+                new_df.write.mode("overwrite").format("delta").saveAsTable(target_table)
+
+            new_max = new_df.agg(F.max(ts_col).alias("max_ts")).first()["max_ts"]
+            now_ts = datetime.now().isoformat()
+            spark.createDataFrame([(str(new_max), now_ts)], "last_processed STRING, poll_at STRING") \
+                .write.mode("overwrite").format("delta").saveAsTable(meta_table)
+        else:
+            print(f"Poll {poll+1}: no new rows")
 
         if poll < max_polls - 1:
-            time.sleep(poll_seconds)
+            import time as _t
+            _t.sleep(poll_seconds)
 
-    return spark.table(target_table).count()
+    return spark.table(target_table).count() if spark.catalog.tableExists(target_table) else 0
 
+
+# Create a timestamped source table for this demo
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.polling_source")
 spark.sql("DROP TABLE IF EXISTS ingestion_demo.polling_target")
-cnt = polling_discovery_loop(DBFS_SALES, "ingestion_demo.polling_target", poll_seconds=2, max_polls=3)
+
+polling_data = generate_sales_df(num_rows=200) \
+    .withColumn("created_at", F.current_timestamp())
+polling_data.write.mode("overwrite").format("delta").saveAsTable("ingestion_demo.polling_source")
+
+cnt = polling_discovery_loop(
+    "ingestion_demo.polling_source",
+    "ingestion_demo.polling_target",
+    poll_seconds=2,
+    max_polls=3,
+    ts_col="created_at"
+)
 print(f"Total rows after polling loop: {cnt}")
 
 ```
-```python
-
-```
-%md
----
-## Concept 35 — Auto Loader: Schema Evolution & Rescued Data
-
-Production data *drifts* — a source system adds a column, changes a type, or sends a malformed record.
-Auto Loader handles this with two options:
-
-| Option                         | Behaviour                                                             |
-|--------------------------------|-----------------------------------------------------------------------|
-| `cloudFiles.schemaEvolutionMode` | `addNewColumns` — add new columns (default)                           |
-|                                | `failOnNewColumns` — throw error (strict)                             |
-|                                | `rescue` — add new columns AND route mismatched data to `_rescued_data` |
-|                                | `none` — ignore schema changes entirely                               |
-| `cloudFiles.rescuedDataColumn` | Name of the rescue column (default `_rescued_data`)                   |
-
----
 
 ```python
 
 ```
-%md
-### 35‑A  Manual Schema Evolution (CE Simulation)
+
+ ---
+ ## Concept 35 — Auto Loader: Schema Evolution & Rescued Data
+
+ Production data *drifts* — a source system adds a column, changes a type, or sends a malformed record.
+ Auto Loader handles this with two options:
+
+ | Option                         | Behaviour                                                             |
+ |--------------------------------|-----------------------------------------------------------------------|
+ | `cloudFiles.schemaEvolutionMode` | `addNewColumns` — add new columns (default)                           |
+ |                                | `failOnNewColumns` — throw error (strict)                             |
+ |                                | `rescue` — add new columns AND route mismatched data to `_rescued_data` |
+ |                                | `none` — ignore schema changes entirely                               |
+ | `cloudFiles.rescuedDataColumn` | Name of the rescue column (default `_rescued_data`)                   |
+
+ ---
+
+```python
+
+```
+
+ ### 35‑A  Manual Schema Evolution (Managed Table Demonstration)
 
 ```python
 
@@ -698,6 +796,7 @@ print("Batch 1 schema:")
 spark.table("ingestion_demo.schema_evolution_demo").printSchema()
 
 ```
+
 ```python
 
 # Step 2 — A new batch arrives with an EXTRA column `supplier` and a new data type for `created_date`
@@ -715,7 +814,6 @@ new_schema = T.StructType([
 ])
 df2 = spark.createDataFrame(new_data, schema=new_schema)
 
-# ---- Simulate rescued data column manually ----
 # Merge schemas: read existing schema, add new columns from the incoming batch
 existing_schema = spark.table("ingestion_demo.schema_evolution_demo").schema
 existing_cols = set(f.name for f in existing_schema.fields)
@@ -736,18 +834,17 @@ merged_df.printSchema()
 merged_df.show()
 
 ```
+
 ```python
 
 ```
-%md
-### 35‑B  Simulating Rescued Data Column
+
+ ### 35‑B  Simulating Rescued Data Column
 
 ```python
 
 # In Auto Loader, the `_rescued_data` column captures rows whose types don't match,
 # so no data is lost. We simulate this by detecting parse errors manually.
-
-from pyspark.sql import types as T
 
 rescued_schema = T.StructType([
     T.StructField("id",      T.IntegerType()),
@@ -768,7 +865,6 @@ raw_df.show()
 
 # In real Auto Loader, the bad row would be written to _rescued_data.
 # Manual alternative: read as strings, validate, separate clean/malformed.
-# Run a query to identify rows where value_1 is not numeric:
 
 raw_df.createOrReplaceTempView("rescued_temp")
 cleaned  = spark.sql("SELECT * FROM rescued_temp WHERE value_1 IS NOT NULL")
@@ -780,68 +876,70 @@ print("Rescued / malformed rows:")
 rescued.show()
 
 ```
-```python
-
-```
-%md
-**Schema Evolution summary (Concept 35):**
-- Auto Loader's `addNewColumns` mode is the safest default — never lose data.
-- `rescue` mode adds `_rescued_data` so you can quarantine and repair malformed records.
-- In Community Edition, `spark.databricks.delta.schema.autoMerge.enabled = true` gives you automatic column addition on append.
 
 ```python
 
 ```
-%md
----
-## Concept 36 — Multi-Hop Medallion Architecture
 
-| Layer   | Purpose                                   | Operations                        |
-|---------|-------------------------------------------|-----------------------------------|
-| Bronze  | Raw ingestion, 1:1 with source            | Append only, preserve lineage     |
-| Silver  | Cleansed, validated, deduplicated         | Cast types, deduplicate, QC       |
-| Gold    | Business aggregates & views               | Aggregations, joins, enrichment   |
-
----
+ **Schema Evolution summary (Concept 35):**
+ - Auto Loader's `addNewColumns` mode is the safest default — never lose data.
+ - `rescue` mode adds `_rescued_data` so you can quarantine and repair malformed records.
+ - With managed tables, `spark.databricks.delta.schema.autoMerge.enabled = true` gives you automatic column addition on append.
 
 ```python
 
 ```
-%md
-### 36‑A  Bronze — Raw Ingestion (Append‑Only)
+
+ ---
+ ## Concept 36 — Multi-Hop Medallion Architecture
+
+ | Layer   | Purpose                                   | Operations                        |
+ |---------|-------------------------------------------|-----------------------------------|
+ | Bronze  | Raw ingestion, 1:1 with source            | Append only, preserve lineage     |
+ | Silver  | Cleansed, validated, deduplicated         | Cast types, deduplicate, QC       |
+ | Gold    | Business aggregates & views               | Aggregations, joins, enrichment   |
+
+ **Serverless note:** All layers are managed Delta tables — no DBFS paths. The bronze layer reads from a source managed table instead of CSV files.
+
+ ---
+
+```python
+
+```
+
+ ### 36‑A  Bronze — Raw Ingestion (Append‑Only)
+
+ Reads from the managed `sales_raw_bronze` source table (instead of CSV files).
 
 ```python
 
 BRONZE_TABLE = "ingestion_demo.sales_bronze"
 
-# Bronze: raw CSV dump, add ingestion timestamp and source filename
-def build_bronze(source_dir, bronze_table):
+def build_bronze(source_table, bronze_table):
+    """Bronze: read from managed source table, add ingestion timestamp and lineage."""
     spark.sql(f"DROP TABLE IF EXISTS {bronze_table}")
 
-    raw_df = (spark.read
-        .option("header", "true")
-        .option("inferSchema", "true")
-        .csv(f"{source_dir}/*.csv")
-    )
+    raw_df = spark.table(source_table)
 
     bronze_df = (raw_df
         .withColumn("_bronze_ingested_at", F.current_timestamp())
-        .withColumn("_source_file", F.input_file_name())
+        .withColumn("_source_table", F.lit(source_table))
     )
 
     bronze_df.write.mode("overwrite").format("delta").saveAsTable(bronze_table)
     return spark.table(bronze_table).count()
 
-bronze_rows = build_bronze(DBFS_SALES, BRONZE_TABLE)
+bronze_rows = build_bronze("ingestion_demo.sales_raw_bronze", BRONZE_TABLE)
 print(f"Bronze layer: {bronze_rows} rows")
 spark.table(BRONZE_TABLE).printSchema()
 
 ```
+
 ```python
 
 ```
-%md
-### 36‑B  Silver — Clean, Deduplicate, Cast Types
+
+ ### 36‑B  Silver — Clean, Deduplicate, Cast Types
 
 ```python
 
@@ -871,7 +969,6 @@ silver_df = (deduped
     .withColumn("region",           F.trim(F.col("region")))
     .withColumn("status",           F.trim(F.col("status")))
     .withColumn("_silver_cleaned_at", F.current_timestamp())
-    # Drop null transaction_ids (data quality)
     .filter(F.col("transaction_id").isNotNull())
     .filter(F.col("transaction_id") != "")
 )
@@ -888,16 +985,16 @@ silver_df.write.mode("overwrite").format("delta").saveAsTable(SILVER_TABLE)
 print(f"Silver layer: {spark.table(SILVER_TABLE).count()} rows")
 spark.table(SILVER_TABLE).printSchema()
 
-# Data quality report
 quality_counts = spark.table(SILVER_TABLE).groupBy("_quality_flag").count()
 display(quality_counts)
 
 ```
+
 ```python
 
 ```
-%md
-### 36‑C  Gold — Business Aggregates
+
+ ### 36‑C  Gold — Business Aggregates
 
 ```python
 
@@ -967,11 +1064,12 @@ print("\nGold — Spending Segments")
 display(spark.table(f"{GOLD_DB}.gold_spending_segments"))
 
 ```
+
 ```python
 
 ```
-%md
-### 36‑D  Medallion Lineage View
+
+ ### 36‑D  Medallion Lineage View
 
 ```python
 
@@ -981,7 +1079,7 @@ print("""
   ├──────────┬──────────────────┬────────────────────┤
   │  Bronze  │  Silver          │  Gold               │
   ├──────────┼──────────────────┼────────────────────┤
-  │ Raw CSV  │ Deduplicated     │ gold_daily_sales    │
+  │ Raw data │ Deduplicated     │ gold_daily_sales    │
   │ (append) │ Typed            │ gold_top_products   │
   │          │ Quality-flagged  │ gold_regional       │
   │          │                  │ gold_spending_segments │
@@ -1000,69 +1098,78 @@ print("Silver:")
 s.show(truncate=False)
 
 ```
-```python
-
-```
-%md
----
-## Concept 37 — Incremental Processing Patterns
-
-Three common strategies for processing only new/changed data:
-
-| Pattern               | Granularity | Latency    | Complexity | Best For                        |
-|-----------------------|-------------|------------|------------|---------------------------------|
-| File‑level            | File        | Minutes    | Low        | Simple batch append             |
-| Change Data Feed (CDF)| Row         | Seconds    | Medium     | CDC from Delta tables           |
-| Timestamp / Watermark | Row         | Sub‑second | Medium     | Streaming with watermark        |
-
----
 
 ```python
 
 ```
-%md
-### 37‑A  File‑Level Incremental Processing
+
+ ---
+ ## Concept 37 — Incremental Processing Patterns
+
+ Three common strategies for processing only new/changed data:
+
+ | Pattern               | Granularity | Latency    | Complexity | Best For                        |
+ |-----------------------|-------------|------------|------------|---------------------------------|
+ | Batch‑level           | Batch       | Minutes    | Low        | Simple batch append             |
+ | Change Data Feed (CDF)| Row         | Seconds    | Medium     | CDC from Delta tables           |
+ | Timestamp / Watermark | Row         | Sub‑second | Medium     | Streaming with watermark        |
+
+ ---
 
 ```python
 
-# We already demonstrated this in Concept 31-C. Here's a concise recap:
-spark.sql("DROP TABLE IF EXISTS ingestion_demo.file_level_target")
-spark.sql("CREATE TABLE IF NOT EXISTS ingestion_demo._file_level_meta "
-          "(file_path STRING, ingested_at STRING) USING delta")
+```
 
-# Process only files NOT in the meta table
-def file_level_incremental(source_dir, target_table):
-    meta = spark.table("ingestion_demo._file_level_meta")
-    ingested = set(r.file_path for r in meta.select("file_path").collect())
-    all_files = set(f.path for f in dbutils.fs.ls(source_dir) if f.name.endswith(".csv"))
-    new = [f for f in sorted(all_files - ingested) if not f.endswith("_SUCCESS")]
+ ### 37‑A  Table‑Level Incremental Processing
 
-    if not new:
-        print("No new files.")
+ Track which batches have been ingested — equivalent to file‑level tracking but uses only managed tables.
+
+```python
+
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.table_level_target")
+spark.sql("CREATE TABLE IF NOT EXISTS ingestion_demo._table_level_meta "
+          "(batch_id STRING, ingested_at STRING) USING delta")
+
+def table_level_incremental(source_table, target_table):
+    """Process only batches NOT in the meta table."""
+    meta = spark.table("ingestion_demo._table_level_meta")
+    ingested = set(r.batch_id for r in meta.select("batch_id").collect()) if meta.count() > 0 else set()
+    all_batches = set(r[0] for r in spark.table(source_table).select("batch_id").distinct().collect() if r[0] is not None)
+    new_batches = sorted(all_batches - ingested)
+
+    if not new_batches:
+        print("No new batches.")
         return 0
 
-    print(f"Processing {len(new)} new file(s)...")
-    df = spark.read.option("header","true").option("inferSchema","true").csv(new)
-    df.write.mode("append").format("delta").saveAsTable(target_table)
-    now = datetime.now().isoformat()
-    spark.createDataFrame([(f, now) for f in new], "file_path STRING, ingested_at STRING") \
-        .write.mode("append").format("delta").saveAsTable("ingestion_demo._file_level_meta")
-    return df.count()
+    print(f"Processing {len(new_batches)} new batch(es)...")
+    source_df = spark.table(source_table).filter(F.col("batch_id").isin(list(new_batches)))
+    if spark.catalog.tableExists(target_table):
+        source_df.write.mode("append").format("delta").saveAsTable(target_table)
+    else:
+        source_df.write.mode("overwrite").format("delta").saveAsTable(target_table)
 
-cnt = file_level_incremental(DBFS_SALES, "ingestion_demo.file_level_target")
-print(f"File-level incremental ingested {cnt} rows.")
+    now = datetime.now().isoformat()
+    spark.createDataFrame([(b, now) for b in new_batches], "batch_id STRING, ingested_at STRING") \
+        .write.mode("append").format("delta").saveAsTable("ingestion_demo._table_level_meta")
+    return source_df.count()
+
+cnt = table_level_incremental(
+    "ingestion_demo.sales_batched_source",
+    "ingestion_demo.table_level_target"
+)
+print(f"Table-level incremental ingested {cnt} rows.")
 
 ```
+
 ```python
 
 ```
-%md
-### 37‑B  Row‑Level — Change Data Feed (CDF)
+
+ ### 37‑B  Row‑Level — Change Data Feed (CDF)
 
 ```python
 
 # Delta's Change Data Feed tracks row‑level changes (insert, update, delete).
-# For Community Edition we simulate CDF by reading version history.
 
 # Create a base table and make changes
 spark.sql("DROP TABLE IF EXISTS ingestion_demo.cdf_demo")
@@ -1103,11 +1210,12 @@ print("\nCDF simulation — history:")
 spark.sql("DESCRIBE HISTORY ingestion_demo.cdf_demo").select("version","timestamp","operation").show(10, truncate=False)
 
 ```
+
 ```python
 
 ```
-%md
-### 37‑C  Timestamp / Watermark‑Based Incremental Processing
+
+ ### 37‑C  Timestamp / Watermark‑Based Incremental Processing
 
 ```python
 
@@ -1115,8 +1223,6 @@ spark.sql("DROP TABLE IF EXISTS ingestion_demo.watermark_source")
 spark.sql("DROP TABLE IF EXISTS ingestion_demo.watermark_target")
 
 # Create a source table with timestamped events
-from pyspark.sql import functions as F
-
 watermark_data = []
 base_date = datetime(2025, 1, 1)
 for i in range(50):
@@ -1135,7 +1241,6 @@ def watermark_incremental(source_table, target_table, watermark_col, watermark_s
     spark.sql(f"CREATE TABLE IF NOT EXISTS {watermark_state_table} "
               "(last_watermark STRING, updated_at STRING) USING delta")
 
-    # Get the last high-watermark
     state = spark.table(watermark_state_table)
     if state.count() > 0:
         last_wm = state.orderBy(F.desc("updated_at")).select("last_watermark").first()[0]
@@ -1156,13 +1261,10 @@ def watermark_incremental(source_table, target_table, watermark_col, watermark_s
     else:
         new_df.write.mode("overwrite").format("delta").saveAsTable(target_table)
 
-    # Compute new max watermark from processed data
     new_wm = new_df.agg(F.max(watermark_col).alias("max_wm")).first()["max_wm"]
     now = datetime.now().isoformat()
 
-    # Update state
-    sparK = spark  # avoid shadowing
-    state_update = sparK.createDataFrame([(new_wm, now)], "last_watermark STRING, updated_at STRING")
+    state_update = spark.createDataFrame([(new_wm, now)], "last_watermark STRING, updated_at STRING")
     state_update.write.mode("overwrite").format("delta").saveAsTable(watermark_state_table)
 
     print(f"Processed {new_count} rows. New high-watermark: {new_wm}")
@@ -1187,6 +1289,7 @@ c2 = watermark_incremental(
 print(f"Second run: {c2} rows")
 
 ```
+
 ```python
 
 # Add new data and run again to verify watermark picks up only new rows
@@ -1207,45 +1310,46 @@ c3 = watermark_incremental(
 print(f"Third run (after adding 10 new events): {c3} rows (expect 10)")
 
 ```
-```python
-
-```
-%md
-**Incremental Processing comparison:**
-
-| Pattern              | Cost  | Latency   | Use Case                             |
-|----------------------|-------|-----------|--------------------------------------|
-| File‑level tracking  | Low   | File‑based| Daily batch loads                    |
-| CDF (Delta)          | Med   | Seconds   | CDC replication, auditing            |
-| Watermark / timestamp| Low   | Near‑RT   | Streaming events, log processing     |
 
 ```python
 
 ```
-%md
----
-## Concept 38 — Lakehouse Federation
 
-Lakehouse Federation allows Databricks to query data in *external* databases (PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery) **without moving the data** — the query is pushed down as much as possible and results are returned.
+ **Incremental Processing comparison:**
 
-**Key concepts:**
-- **Foreign catalog** — a catalog that maps to an external database connection.
-- **Query pushdown** — Databricks translates Spark SQL into the external DB's dialect so filters and aggregations run remotely.
-- **Use cases** — ad‑hoc cross‑system queries, building a 360° customer view, gradual migration to Lakehouse.
-
-**Community Edition limitation:** Foreign catalogs require full platform.  We demonstrate JDBC reading as the CE equivalent.
-
----
+ | Pattern              | Cost  | Latency   | Use Case                             |
+ |----------------------|-------|-----------|--------------------------------------|
+ | Batch‑level tracking | Low   | Batch     | Daily batch loads                    |
+ | CDF (Delta)          | Med   | Seconds   | CDC replication, auditing            |
+ | Watermark / timestamp| Low   | Near‑RT   | Streaming events, log processing     |
 
 ```python
 
 ```
-%md
-### 38‑A  JDBC Read — Community Edition Equivalent of Federation
+
+ ---
+ ## Concept 38 — Lakehouse Federation
+
+ Lakehouse Federation allows Databricks to query data in *external* databases (PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery) **without moving the data** — the query is pushed down as much as possible and results are returned.
+
+ **Key concepts:**
+ - **Foreign catalog** — a catalog that maps to an external database connection.
+ - **Query pushdown** — Databricks translates Spark SQL into the external DB's dialect so filters and aggregations run remotely.
+ - **Use cases** — ad‑hoc cross‑system queries, building a 360° customer view, gradual migration to Lakehouse.
+
+ **Serverless note:** Foreign catalogs require full platform. We demonstrate JDBC reading as the serverless equivalent.
+
+ ---
 
 ```python
 
-# Federation conceptual syntax (not runnable in CE):
+```
+
+ ### 38‑A  JDBC Read — Serverless Equivalent of Federation
+
+```python
+
+# Federation conceptual syntax (requires full platform):
 # CREATE FOREIGN CATALOG pg_catalog
 #   USING JDBC OPTIONS (
 #     url      'jdbc:postgresql://host:5432/db',
@@ -1255,11 +1359,10 @@ Lakehouse Federation allows Databricks to query data in *external* databases (Po
 #
 # SELECT * FROM pg_catalog.public.customers WHERE region = 'West';
 
-# ---- CE alternative: JDBC read ----
-# For demo we read our own Delta table via JDBC (self-referencing)
-# In production you'd connect to Postgres, MySQL, etc.
+# ---- Serverless alternative: JDBC read from managed tables ----
+# For demo we read our own Delta table — in production you'd connect to Postgres, MySQL, etc.
 
-jdbc_url    = f"jdbc:spark://localhost:443/default;transportMode=http;ssl=1;AuthMech=3;httpPath=sql/protocolv1/o/0/0000-000000-0000000000"
+jdbc_url    = "jdbc:spark://localhost:443/default;transportMode=http;ssl=1;AuthMech=3;httpPath=sql/protocolv1/o/0/0000-000000-0000000000"
 jdbc_table  = "ingestion_demo.sales_silver"
 
 try:
@@ -1274,7 +1377,7 @@ try:
     print("JDBC read succeeded (self-referencing).")
     jdbc_df.select("transaction_id", "product_name", "total_amount").show(3)
 except Exception as e:
-    print(f"JDBC to Databricks itself not available in CE: {e}")
+    print(f"JDBC to Databricks itself not available in this environment: {e}")
 
 # ---- Show a generic JDBC pattern (PostgreSQL example, commented) ----
 print("""
@@ -1295,11 +1398,12 @@ pg_df = (spark.read
 """)
 
 ```
+
 ```python
 
 ```
-%md
-### 38‑B  Query Pushdown Explained
+
+ ### 38‑B  Query Pushdown Explained
 
 ```python
 
@@ -1312,6 +1416,7 @@ pg_df = (spark.read
 # With pushdown, the WHERE clause runs server-side — dramatically less data transfer.
 
 # Simulate pushdown benefit with local Spark:
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.pushdown_test")
 big_df = spark.table(BRONZE_TABLE).repartition(1)
 big_df.write.mode("overwrite").format("delta").saveAsTable("ingestion_demo.pushdown_test")
 
@@ -1328,48 +1433,49 @@ print(f"Filter chain time: {t1-t0:.4f}s  (automatic pushdown in Delta/Parquet: {
 print("In a federated query, pushdown avoids transferring millions of unnecessary rows over the network.")
 
 ```
-```python
-
-```
-%md
-**When to use Federation vs. ETL:**
-
-| Scenario                                | Approach          |
-|-----------------------------------------|-------------------|
-| Ad‑hoc query across 2+ systems          | Federation        |
-| Operational dashboard with <5s latency  | Federation        |
-| One‑time data exploration               | Federation        |
-| Heavy transformations, joins, history   | ETL into Lakehouse|
-| ML training on large datasets           | ETL into Lakehouse|
-| Compliance / audit trail required       | ETL into Lakehouse|
 
 ```python
 
 ```
-%md
----
-## Concept 39 — Idempotent Pipeline Design
 
-**Idempotency = running the pipeline multiple times produces the same final state.**
+ **When to use Federation vs. ETL:**
 
-Why it matters:
-- **Failure recovery** — re‑run without manual cleanup
-- **Backfill** — re‑process a date range safely
-- **Late‑arriving data** — re‑ingest a partition
-
-Strategies:
-- `MERGE` with natural keys (upsert semantics)
-- `INSERT OVERWRITE` with `replaceWhere`
-- Partition‑based truncate + reload
-- `COPY INTO` (built‑in idempotency)
-
----
+ | Scenario                                | Approach          |
+ |-----------------------------------------|-------------------|
+ | Ad‑hoc query across 2+ systems          | Federation        |
+ | Operational dashboard with <5s latency  | Federation        |
+ | One‑time data exploration               | Federation        |
+ | Heavy transformations, joins, history   | ETL into Lakehouse|
+ | ML training on large datasets           | ETL into Lakehouse|
+ | Compliance / audit trail required       | ETL into Lakehouse|
 
 ```python
 
 ```
-%md
-### 39‑A  MERGE with Natural Keys — Idempotent Upsert
+
+ ---
+ ## Concept 39 — Idempotent Pipeline Design
+
+ **Idempotency = running the pipeline multiple times produces the same final state.**
+
+ Why it matters:
+ - **Failure recovery** — re‑run without manual cleanup
+ - **Backfill** — re‑process a date range safely
+ - **Late‑arriving data** — re‑ingest a partition
+
+ Strategies:
+ - `MERGE` with natural keys (upsert semantics)
+ - `INSERT OVERWRITE` with `replaceWhere`
+ - Partition‑based truncate + reload
+ - `COPY INTO` (built‑in idempotency)
+
+ ---
+
+```python
+
+```
+
+ ### 39‑A  MERGE with Natural Keys — Idempotent Upsert
 
 ```python
 
@@ -1430,11 +1536,12 @@ print("After run 3 (still idempotent):")
 spark.table("ingestion_demo.idempotent_products").orderBy("product_code").show()
 
 ```
+
 ```python
 
 ```
-%md
-### 39‑B  INSERT OVERWRITE with replaceWhere — Partition Idempotency
+
+ ### 39‑B  INSERT OVERWRITE with replaceWhere — Partition Idempotency
 
 ```python
 
@@ -1487,36 +1594,31 @@ distinct_dates = spark.table("ingestion_demo.idempotent_sales") \
 print(f"Total distinct dates in table: {distinct_dates}")
 
 ```
+
 ```python
 
 ```
-%md
-### 39‑C  Fully Idempotent Ingestion Function
+
+ ### 39‑C  Fully Idempotent Ingestion Function (Table‑Based)
+
+ Reads from a managed source table instead of CSV files.
 
 ```python
 
-def idempotent_ingest(source_dir, target_table, natural_key_cols, partition_col=None):
+def idempotent_ingest(source_table, target_table, natural_key_cols, partition_col=None):
     """
     Generic idempotent ingestion function:
-    1. Read new data from source_dir
+    1. Read from managed source table
     2. MERGE into target table using natural_key_cols
     3. If partition_col is provided, use replaceWhere at partition granularity
     """
-    print(f"Source      : {source_dir}")
+    print(f"Source      : {source_table}")
     print(f"Target      : {target_table}")
     print(f"Natural keys: {natural_key_cols}")
 
-    # Read source
-    source_df = (spark.read
-        .option("header", "true")
-        .option("inferSchema", "true")
-        .csv(f"{source_dir}/*.csv")
-    )
-
-    # Add ingestion metadata
-    source_df = source_df \
+    source_df = spark.table(source_table) \
         .withColumn("_ingested_at", F.current_timestamp()) \
-        .withColumn("_source",      F.lit(source_dir))
+        .withColumn("_source",      F.lit(source_table))
 
     # Ensure target exists
     if not spark.catalog.tableExists(target_table):
@@ -1558,14 +1660,14 @@ def idempotent_ingest(source_dir, target_table, natural_key_cols, partition_col=
 spark.sql("DROP TABLE IF EXISTS ingestion_demo.fully_idempotent_target")
 
 c1 = idempotent_ingest(
-    DBFS_SALES,
+    "ingestion_demo.sales_raw_bronze",
     "ingestion_demo.fully_idempotent_target",
     natural_key_cols=["transaction_id"]
 )
 print(f"Run 1 created {c1} rows")
 
 c2 = idempotent_ingest(
-    DBFS_SALES,
+    "ingestion_demo.sales_raw_bronze",
     "ingestion_demo.fully_idempotent_target",
     natural_key_cols=["transaction_id"]
 )
@@ -1575,19 +1677,20 @@ assert c1 == c2, "IDEMPOTENCY VIOLATED"
 print("Idempotency verified.")
 
 ```
+
 ```python
 
 ```
-%md
-### 39‑D  Retry Pattern with Checkpoint Recovery
+
+ ### 39‑D  Retry Pattern with Checkpoint Recovery
 
 ```python
 
-def idempotent_ingest_with_retry(source_dir, target_table, natural_keys, max_retries=3, backoff_seconds=2):
+def idempotent_ingest_with_retry(source_table, target_table, natural_keys, max_retries=3, backoff_seconds=2):
     """Idempotent ingestion with exponential backoff retry."""
     for attempt in range(1, max_retries + 1):
         try:
-            count = idempotent_ingest(source_dir, target_table, natural_keys)
+            count = idempotent_ingest(source_table, target_table, natural_keys)
             print(f"Success on attempt {attempt}.")
             return count
         except Exception as e:
@@ -1601,7 +1704,7 @@ def idempotent_ingest_with_retry(source_dir, target_table, natural_keys, max_ret
 print("\nRetry pattern demonstration:")
 try:
     idempotent_ingest_with_retry(
-        DBFS_SALES,
+        "ingestion_demo.sales_raw_bronze",
         "ingestion_demo.fully_idempotent_target",
         ["transaction_id"],
         max_retries=2
@@ -1610,47 +1713,50 @@ except Exception as e:
     print(f"Expected failure: {e}")
 
 ```
-```python
-
-```
-%md
-**Idempotency summary (Concept 39):**
-
-| Strategy                | When to Use                               |
-|-------------------------|-------------------------------------------|
-| `MERGE` with natural key| Dimension tables, upsert workloads        |
-| `INSERT OVERWRITE`      | Full partition reload                     |
-| `replaceWhere`          | Selective partition reload                |
-| `COPY INTO`             | File‑based batch loads (built‑in)         |
-| Checkpoint + retry      | Streaming / long‑running pipelines        |
 
 ```python
 
 ```
-%md
----
-## Concept 40 — SCD Type 1 & Type 2 Patterns
 
-**Slowly Changing Dimensions (SCD)** manage changes to dimensional attributes over time.
+ **Idempotency summary (Concept 39):**
 
-| Type | Strategy                                 | Historical tracking | Storage |
-|------|------------------------------------------|---------------------|---------|
-| 1    | Overwrite old value with new value       | No                  | Low     |
-| 2    | Insert new row; expire old row           | Yes                 | Higher  |
-| 3    | Keep previous value in a separate column | One version back    | Medium  |
-
----
+ | Strategy                | When to Use                               |
+ |-------------------------|-------------------------------------------|
+ | `MERGE` with natural key| Dimension tables, upsert workloads        |
+ | `INSERT OVERWRITE`      | Full partition reload                     |
+ | `replaceWhere`          | Selective partition reload                |
+ | `COPY INTO`             | File‑based batch loads (built‑in)         |
+ | Checkpoint + retry      | Streaming / long‑running pipelines        |
 
 ```python
 
 ```
-%md
-### 40‑A  Build Customer Dimension (Base Data)
+
+ ---
+ ## Concept 40 — SCD Type 1 & Type 2 Patterns
+
+ **Slowly Changing Dimensions (SCD)** manage changes to dimensional attributes over time.
+
+ | Type | Strategy                                 | Historical tracking | Storage |
+ |------|------------------------------------------|---------------------|---------|
+ | 1    | Overwrite old value with new value       | No                  | Low     |
+ | 2    | Insert new row; expire old row           | Yes                 | Higher  |
+ | 3    | Keep previous value in a separate column | One version back    | Medium  |
+
+ **Serverless note:** SCD patterns use MERGE on managed tables — no file operations needed. Fully compatible.
+
+ ---
+
+```python
+
+```
+
+ ### 40‑A  Build Customer Dimension (Base Data)
 
 ```python
 
 # Create initial customer dimension
-spark.sql("DROP TABLE IF EXISTS ingestion_demo.customers")
+spark.sql("DROP TABLE IF EXISTS ingestion_demo.customers_scd")
 spark.sql("DROP TABLE IF EXISTS ingestion_demo.customers_scd2")
 
 CUSTOMER_DATA = [
@@ -1673,16 +1779,17 @@ customer_schema = T.StructType([
 customer_base = spark.createDataFrame(CUSTOMER_DATA, schema=customer_schema) \
     .withColumn("created_at", F.current_timestamp())
 
-customer_base.write.mode("overwrite").format("delta").saveAsTable("ingestion_demo.customers")
+customer_base.write.mode("overwrite").format("delta").saveAsTable("ingestion_demo.customers_scd")
 print("Initial customer dimension:")
-spark.table("ingestion_demo.customers").show(truncate=False)
+spark.table("ingestion_demo.customers_scd").show(truncate=False)
 
 ```
+
 ```python
 
 ```
-%md
-### 40‑B  SCD Type 1 — Overwrite Current Attributes
+
+ ### 40‑B  SCD Type 1 — Overwrite Current Attributes
 
 ```python
 
@@ -1697,7 +1804,7 @@ scd1_changes = spark.createDataFrame([
 scd1_changes.createOrReplaceTempView("scd1_changes")
 
 scd1_merge = """
-  MERGE INTO ingestion_demo.customers AS target
+  MERGE INTO ingestion_demo.customers_scd AS target
   USING scd1_changes AS source
   ON target.customer_id = source.customer_id
   WHEN MATCHED THEN
@@ -1716,20 +1823,21 @@ scd1_merge = """
 spark.sql(scd1_merge)
 
 print("After SCD Type 1 merge (Alice & Bob updated in place; Frank added):")
-spark.table("ingestion_demo.customers").orderBy("customer_id").show(truncate=False)
+spark.table("ingestion_demo.customers_scd").orderBy("customer_id").show(truncate=False)
 
 ```
-```python
-
-```
-%md
-**SCD Type 1 consequence:** Alice's old email and city are *lost*.  No history preserved — but the table stays small and simple.
 
 ```python
 
 ```
-%md
-### 40‑C  SCD Type 2 — Full History with Effective Dates & Current Flag
+
+ **SCD Type 1 consequence:** Alice's old email and city are *lost*. No history preserved — but the table stays small and simple.
+
+```python
+
+```
+
+ ### 40‑C  SCD Type 2 — Full History with Effective Dates & Current Flag
 
 ```python
 
@@ -1744,6 +1852,7 @@ print("Initial SCD Type 2 dimension:")
 spark.table("ingestion_demo.customers_scd2").orderBy("customer_id").show(truncate=False)
 
 ```
+
 ```python
 
 # ---- Incoming changes (Type 2) ----
@@ -1790,7 +1899,6 @@ insert_sql = """
     CAST(NULL AS DATE) AS eff_end_date,
     true           AS is_current
   FROM scd2_incoming source
-  -- Only insert if the customer doesn't exist at all, or has changed
   LEFT ANTI JOIN ingestion_demo.customers_scd2 target
     ON source.customer_id = target.customer_id AND target.is_current = true
   WHERE NOT EXISTS (
@@ -1824,11 +1932,12 @@ spark.table("ingestion_demo.customers_scd2") \
     .show(truncate=False)
 
 ```
+
 ```python
 
 ```
-%md
-### 40‑D  Querying Current vs. Historical Views (SCD Type 2)
+
+ ### 40‑D  Querying Current vs. Historical Views (SCD Type 2)
 
 ```python
 
@@ -1858,11 +1967,12 @@ spark.table("ingestion_demo.customers_scd2") \
     .show(truncate=False)
 
 ```
+
 ```python
 
 ```
-%md
-### 40‑E  SCD Type 2 MERGE — Production‑Ready Single Statement
+
+ ### 40‑E  SCD Type 2 MERGE — Production‑Ready Single Statement
 
 ```python
 
@@ -1936,79 +2046,89 @@ spark.table("ingestion_demo.cust_scd2_v2") \
     .show(truncate=False)
 
 ```
-```python
-
-```
-%md
-**SCD Type 1 vs Type 2 tradeoffs:**
-
-| Aspect              | Type 1                        | Type 2                           |
-|---------------------|-------------------------------|----------------------------------|
-| Storage             | Low (one row per key)         | Higher (one row per change)      |
-| Historical queries  | Not possible                  | Built‑in (eff dates + flag)      |
-| Implementation      | Simple UPDATE                 | MERGE with expire + insert       |
-| Use case            | Corrections, transient fields | Regulatory audit, change tracking|
 
 ```python
 
 ```
-%md
----
-## Cleanup (Optional)
+
+ **SCD Type 1 vs Type 2 tradeoffs:**
+
+ | Aspect              | Type 1                        | Type 2                           |
+ |---------------------|-------------------------------|----------------------------------|
+ | Storage             | Low (one row per key)         | Higher (one row per change)      |
+ | Historical queries  | Not possible                  | Built‑in (eff dates + flag)      |
+ | Implementation      | Simple UPDATE                 | MERGE with expire + insert       |
+ | Use case            | Corrections, transient fields | Regulatory audit, change tracking|
 
 ```python
 
-# Uncomment to clean up all demo tables and files:
+```
+
+ ---
+ ## Cleanup (Optional)
+
+```python
+
+# Uncomment to clean up all demo tables:
 # spark.sql("DROP DATABASE IF EXISTS ingestion_demo CASCADE")
-# dbutils.fs.rm("dbfs:/FileStore/ingestion_demo", recurse=True)
-# dbutils.fs.rm("dbfs:/FileStore/tables/ingestion_demo", recurse=True)
+# spark.sql("DROP TABLE IF EXISTS ingestion_demo.sales_raw_bronze")
+# spark.sql("DROP TABLE IF EXISTS ingestion_demo.customers")
+# spark.sql("DROP TABLE IF EXISTS ingestion_demo.sales_bronze")
+# spark.sql("DROP TABLE IF EXISTS ingestion_demo.sales_silver")
+# spark.sql("DROP TABLE IF EXISTS ingestion_demo.gold_daily_sales")
+# spark.sql("DROP TABLE IF EXISTS ingestion_demo.gold_top_products")
+# spark.sql("DROP TABLE IF EXISTS ingestion_demo.gold_regional")
+# spark.sql("DROP TABLE IF EXISTS ingestion_demo.gold_spending_segments")
 
 print("Cleanup skipped — remove comments above to execute.")
 
 ```
-```python
-
-```
-%md
----
-## Summary — Concepts 31 through 40
-
-| #  | Concept                              | Key Technique / Takeaway                                                     |
-|----|--------------------------------------|------------------------------------------------------------------------------|
-| 31 | COPY INTO vs. Auto Loader            | `COPY INTO` for batch (idempotent); Auto Loader for streaming with schema evo|
-| 32 | File Formats in the Lakehouse        | Delta/Parquet rule the lakehouse — columnar, compressed, predicate pushdown  |
-| 33 | Volumes                              | Governed file storage in Unity Catalog; use DBFS FileStore in CE             |
-| 34 | Auto Loader: File Discovery          | Directory listing (simple) vs. file notification (low‑latency)                |
-| 35 | Schema Evolution & Rescued Data      | `addNewColumns` + `_rescued_data` prevents data loss on schema drift        |
-| 36 | Multi-Hop Medallion Architecture     | Bronze (raw) → Silver (cleansed) → Gold (aggregates) — each a Delta table   |
-| 37 | Incremental Processing Patterns      | File‑level, CDF, or watermark‑based — pick by latency/cost requirements     |
-| 38 | Lakehouse Federation                 | Query external DBs without moving data; JDBC fallback in CE                   |
-| 39 | Idempotent Pipeline Design           | MERGE with natural keys, replaceWhere, checkpoint recovery                   |
-| 40 | SCD Type 1 & Type 2                  | Type 1 = overwrite; Type 2 = history with eff dates + current flag           |
-
----
 
 ```python
 
 ```
-%md
-## Self‑Assessment
 
-Answer these to validate your understanding:
+ ---
+ ## Summary — Concepts 31 through 40
 
-1. What makes `COPY INTO` idempotent without any user‑managed tracking table?
-2. Why does Parquet outperform CSV for analytical queries even when the same data is stored?
-3. How do Volumes differ from regular Delta tables in Unity Catalog?
-4. What are the two file‑discovery modes in Auto Loader and when would you choose each?
-5. What does the `_rescued_data` column capture, and why is it important?
-6. Draw the Medallion architecture layers and describe what happens at each stage.
-7. Compare file‑level, CDF, and watermark‑based incremental processing.
-8. When would you use Lakehouse Federation instead of a full ETL pipeline?
-9. Write a pseudocode `MERGE` statement that is safe to run multiple times without duplicating data.
-10. A customer moves from NY to CA.  What is the difference in query results between SCD Type 1 and SCD Type 2?
+ | #  | Concept                              | Key Technique / Takeaway                                                     |
+ |----|--------------------------------------|------------------------------------------------------------------------------|
+ | 31 | COPY INTO vs. Auto Loader            | `COPY INTO` for batch (idempotent); Auto Loader for streaming with schema evo|
+ | 32 | File Formats in the Lakehouse        | Delta/Parquet rule the lakehouse — columnar, compressed, predicate pushdown  |
+ | 33 | Volumes                              | Governed file storage in Unity Catalog; managed tables on serverless          |
+ | 34 | Auto Loader: File Discovery          | Directory listing (simple) vs. file notification (low‑latency)                |
+ | 35 | Schema Evolution & Rescued Data      | `addNewColumns` + `_rescued_data` prevents data loss on schema drift        |
+ | 36 | Multi-Hop Medallion Architecture     | Bronze (raw) → Silver (cleansed) → Gold (aggregates) — each a Delta table   |
+ | 37 | Incremental Processing Patterns      | Batch‑level, CDF, or watermark‑based — pick by latency/cost requirements    |
+ | 38 | Lakehouse Federation                 | Query external DBs without moving data; JDBC fallback on serverless           |
+ | 39 | Idempotent Pipeline Design           | MERGE with natural keys, replaceWhere, checkpoint recovery                   |
+ | 40 | SCD Type 1 & Type 2                  | Type 1 = overwrite; Type 2 = history with eff dates + current flag           |
 
-**Happy Engineering!**
+ ---
 
+```python
 
-%md
-&copy; 2025 — Databricks Data Engineering Learning Path — Concepts 31–40
+```
+
+ ## Self‑Assessment
+
+ Answer these to validate your understanding:
+
+ 1. What makes `COPY INTO` idempotent without any user‑managed tracking table?
+ 2. Why does Parquet outperform CSV for analytical queries even when the same data is stored?
+ 3. How do Volumes differ from regular Delta tables in Unity Catalog?
+ 4. What are the two file‑discovery modes in Auto Loader and when would you choose each?
+ 5. What does the `_rescued_data` column capture, and why is it important?
+ 6. Draw the Medallion architecture layers and describe what happens at each stage.
+ 7. Compare batch‑level, CDF, and watermark‑based incremental processing.
+ 8. When would you use Lakehouse Federation instead of a full ETL pipeline?
+ 9. Write a pseudocode `MERGE` statement that is safe to run multiple times without duplicating data.
+ 10. A customer moves from NY to CA. What is the difference in query results between SCD Type 1 and SCD Type 2?
+
+ **Happy Engineering!**
+
+```python
+
+```
+
+ &copy; 2025 — Databricks Data Engineering Learning Path — Concepts 31–40

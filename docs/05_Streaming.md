@@ -1,26 +1,37 @@
-%md
-# Structured Streaming in Databricks — Concepts #41–#50
+ # Structured Streaming in Databricks — Concepts #41–#50
 
-**Overview**: This notebook covers the second half of the Structured Streaming curriculum:
-structured streaming foundations, triggers, output modes, joins, windowing, foreachBatch,
-Lakeflow streaming tables, checkpointing, watermarks, and stream-stream joins.
+ **Overview**: This notebook covers the second half of the Structured Streaming curriculum:
+ structured streaming foundations, triggers, output modes, joins, windowing, foreachBatch,
+ Lakeflow streaming tables, checkpointing, watermarks, and stream-stream joins.
 
-**Environment**: Designed for Databricks Community Edition (single node, free tier).
-Structured Streaming *is* available on Community Edition, but with limitations:
-- Single-node execution (no distributed recovery)
-- Checkpoint recovery may not survive full cluster restarts
-- Lakeflow / DLT pipelines are NOT available (covered conceptually)
-- Memory-based sinks are best for demonstration
+ **Environment**: Designed for Databricks Community Edition (single node, free tier).
+ Structured Streaming *is* available on Community Edition, but with limitations:
+ - Single-node execution (no distributed recovery)
+ - Checkpoint recovery may not survive full cluster restarts
+ - Lakeflow / DLT pipelines are NOT available (covered conceptually)
+ - Memory-based sinks are best for demonstration
 
-**Datasets Used**:
-- `rate` source for synthetic streaming data
-- File-based streaming (CSV files written to DBFS / local)
-- Simulated IoT, clickstream, and financial event data
+ **Datasets Used**:
+ - `rate` source for synthetic streaming data
+ - File-based streaming (CSV files written to DBFS / local)
+ - Simulated IoT, clickstream, and financial event data
 
 ```python
 ```
-%md
-### Setup — Create Directories and Clean Checkpoints
+
+ ### Setup — Create Directories and Clean Checkpoints
+
+```python
+```
+
+ ⚠️ **SERVERLESS COMPATIBILITY NOTE**
+
+ This notebook has been adapted for serverless compute:
+ - All Delta sinks use **managed tables** (`saveAsTable`) instead of DBFS/Volumes paths
+ - Checkpoint paths use `/tmp/` (workspace-local temp) — **may fail on serverless** clusters that don't support local storage; a DBFS fallback is provided where applicable
+ - `dbutils.fs.rm` calls replaced with `DROP TABLE IF EXISTS` for managed tables
+ - File-based CSV streaming sources use `/tmp/`; these may also fail on strict serverless environments
+ - If you encounter checkpoint errors, set `checkpointLocation` to a Unity Catalog Volume path
 
 ```python
 import os
@@ -45,21 +56,27 @@ from pyspark.sql.streaming import DataStreamWriter
 
 print("✅ Spark session ready")
 
-# ── Working directories ──
-BASE_DIR = "/tmp/streaming_demo"
-CHECKPOINT_DIR = f"{BASE_DIR}/checkpoints"
-STREAM_SRC_DIR  = f"{BASE_DIR}/source_csv"
-DELTA_SINK_DIR  = f"{BASE_DIR}/delta_sink"
-STATIC_DIR      = f"{BASE_DIR}/static"
-DUAL_SINK_1     = f"{BASE_DIR}/dual_sink/events"
-DUAL_SINK_2     = f"{BASE_DIR}/dual_sink/summary"
+# ── Serverless-compatible configuration ──
+DB = "default"
+CHECKPOINT_DIR = f"/tmp/{DB}/_checkpoints_streaming"
 
-dirs = [BASE_DIR, CHECKPOINT_DIR, STREAM_SRC_DIR,
-        DELTA_SINK_DIR, STATIC_DIR, DUAL_SINK_1, DUAL_SINK_2]
+def get_checkpoint(name):
+    """Return a checkpoint path with serverless fallback to DBFS."""
+    local = f"{CHECKPOINT_DIR}/{name}"
+    try:
+        os.makedirs(local, exist_ok=True)
+        return local
+    except Exception:
+        fallback = f"dbfs:/tmp/{DB}/_checkpoints_streaming/{name}"
+        print(f"⚠️  Local checkpoint unavailable; using DBFS fallback: {fallback}")
+        return fallback
 
-for d in dirs:
-    os.makedirs(d, exist_ok=True)
-    print(f"  📁 {d}")
+# For CSV streaming sources (local temp)
+STREAM_SRC_DIR = "/tmp/streaming_csv_source"
+
+# Ensure source directory exists
+os.makedirs(STREAM_SRC_DIR, exist_ok=True)
+print(f"  📁 {STREAM_SRC_DIR}")
 
 # Kill any lingering streams
 for q in spark.streams.active:
@@ -69,28 +86,29 @@ for q in spark.streams.active:
 print("✅ Environment ready")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 41: Structured Streaming Fundamentals
 
-**Core Idea**: Structured Streaming treats a *stream* as an **unbounded, continuously-
-growing table**. New data arriving in the stream is appended as new rows.
+ ---
+ ## Concept 41: Structured Streaming Fundamentals
 
-**How it differs from batch**:
-|   | Batch | Structured Streaming |
-|---|---|---|
-| Input | Finite, bounded | Unbounded, continuous |
-| Query | Runs once on static data | Runs continuously on arriving data |
-| Result | Single final result | Continuously updating result (or a new Delta table) |
-| Engine | Reads entire table | Reads micro-batches (or continuous processing) |
+ **Core Idea**: Structured Streaming treats a *stream* as an **unbounded, continuously-
+ growing table**. New data arriving in the stream is appended as new rows.
 
-**The two key APIs**:
-- `spark.readStream` — define the streaming DataFrame (source)
-- `df.writeStream`  — define the output (sink), trigger, and output mode
+ **How it differs from batch**:
+ |   | Batch | Structured Streaming |
+ |---|---|---|
+ | Input | Finite, bounded | Unbounded, continuous |
+ | Query | Runs once on static data | Runs continuously on arriving data |
+ | Result | Single final result | Continuously updating result (or a new Delta table) |
+ | Engine | Reads entire table | Reads micro-batches (or continuous processing) |
 
-Let's start with the simplest possible streaming query: `rate` → `console`.
+ **The two key APIs**:
+ - `spark.readStream` — define the streaming DataFrame (source)
+ - `df.writeStream`  — define the output (sink), trigger, and output mode
+
+ Let's start with the simplest possible streaming query: `rate` → `console`.
 
 ```python
 print("=" * 60)
@@ -110,6 +128,7 @@ print(f"isStreaming               : {streaming_df.isStreaming}")
 print(f"Schema:\n{streaming_df.printSchema()}")
 
 ```
+
 ```python
 # ═══ Write the stream to a memory sink so we can query it ═══
 memory_query = (
@@ -142,20 +161,19 @@ memory_query.stop()
 print("⏹️  Streaming query stopped.")
 
 ```
+
 ```python
 ```
-%md
-### Concept 41 — Delta as Both Source AND Sink (Stream → Delta → Re-read)
 
-Delta Lake is *both* a streaming sink **and** a streaming source. This enables:
-- **Sink**: Stream writes continuously to a Delta table
-- **Source**: Another stream reads new Delta files as they are committed
+ ### Concept 41 — Delta as Both Source AND Sink (Stream → Delta → Re-read)
+
+ Delta Lake is *both* a streaming sink **and** a streaming source. This enables:
+ - **Sink**: Stream writes continuously to a Delta table
+ - **Source**: Another stream reads new Delta files as they are committed
 
 ```python
-# ── Write rate data to a Delta table ──
-delta_sink_path = f"{DELTA_SINK_DIR}/rate_sink_q41"
-
-dbutils.fs.rm(delta_sink_path, True)
+# ── Write rate data to a managed Delta table ──
+spark.sql(f"DROP TABLE IF EXISTS {DB}.rate_sink_q41")
 
 delta_query = (
     spark.readStream
@@ -165,50 +183,47 @@ delta_query = (
     .writeStream
     .format("delta")
     .outputMode("append")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/q41_delta")
+    .option("checkpointLocation", get_checkpoint("q41_delta"))
     .trigger(processingTime="10 seconds")
-    .start(delta_sink_path)
+    .start(f"{DB}.rate_sink_q41")
 )
 
-print("📤 Streaming into Delta table...")
+print("📤 Streaming into managed Delta table...")
 time.sleep(20)
 
 # Read the Delta table as a static batch
-df_batch = spark.read.format("delta").load(delta_sink_path)
+df_batch = spark.read.table(f"{DB}.rate_sink_q41")
 print(f"📊 Delta table row count: {df_batch.count()}")
 df_batch.orderBy("timestamp", ascending=False).show(5, truncate=False)
 
-# Now treat the same Delta table as a *streaming source*!
-df_streaming_source = (
-    spark.readStream
-    .format("delta")
-    .load(delta_sink_path)
-)
+# Now treat the same managed Delta table as a *streaming source*!
+df_streaming_source = spark.readStream.table(f"{DB}.rate_sink_q41")
 print(f"\n🔁 Delta as streaming source — isStreaming: {df_streaming_source.isStreaming}")
 
 delta_query.stop()
 print("⏹️  Delta sink query stopped.")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 42: Triggers
 
-**Triggers** control *how often* the streaming engine processes data.
+ ---
+ ## Concept 42: Triggers
 
-| Trigger Type | Behavior | Best For |
-|---|---|---|
-| `processingTime="10 seconds"` | Micro-batch every N seconds | Low-latency, continuous |
-| `availableNow=True` | Process all available data, then stop | One-time backfills, testing |
-| `once=True` (deprecated) | Process one micro-batch and stop | Legacy; prefer `availableNow` |
-| `continuous="10 seconds"` | True continuous mode (not in Community) | Sub-ms latency (not in CE) |
+ **Triggers** control *how often* the streaming engine processes data.
 
-**Choosing the right trigger**:
-- Low latency needed → `processingTime` with short interval
-- Cost-sensitive / batch-like → longer `processingTime` or `availableNow`
-- Backfill historical data → `availableNow`
+ | Trigger Type | Behavior | Best For |
+ |---|---|---|
+ | `processingTime="10 seconds"` | Micro-batch every N seconds | Low-latency, continuous |
+ | `availableNow=True` | Process all available data, then stop | One-time backfills, testing |
+ | `once=True` (deprecated) | Process one micro-batch and stop | Legacy; prefer `availableNow` |
+ | `continuous="10 seconds"` | True continuous mode (not in Community) | Sub-ms latency (not in CE) |
+
+ **Choosing the right trigger**:
+ - Low latency needed → `processingTime` with short interval
+ - Cost-sensitive / batch-like → longer `processingTime` or `availableNow`
+ - Backfill historical data → `availableNow`
 
 ```python
 print("=" * 60)
@@ -240,7 +255,7 @@ print("   Process ALL available data in one shot, then stop.\n")
 
 # Write a batch of CSV files to simulate "available now" data
 available_dir = f"{STREAM_SRC_DIR}/available_now_q42"
-dbutils.fs.rm(available_dir, True)
+shutil.rmtree(available_dir, ignore_errors=True)
 os.makedirs(available_dir, exist_ok=True)
 
 # Generate CSV files
@@ -291,22 +306,23 @@ print(f"   Rows processed (availableNow): {cnt2}  (should be ~60)")
 print("\n✅ Both trigger types demonstrated.")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 43: Output Modes
 
-**Output modes** determine *what* data is written to the sink on each trigger:
+ ---
+ ## Concept 43: Output Modes
 
-| Mode | Behavior | Allowed With |
-|---|---|---|
-| **Append** | Only new rows appended since last trigger | Any query without aggregation (or with watermark) |
-| **Complete** | Entire result table is written every trigger | Aggregation queries only |
-| **Update** | Only rows that changed since last trigger | Aggregations + watermarked operations |
+ **Output modes** determine *what* data is written to the sink on each trigger:
 
-**Key Rule**: Aggregations (groupBy) produce "updating" results — you CANNOT use
-Append mode without a watermark. Use Complete for small state, Update for efficiency.
+ | Mode | Behavior | Allowed With |
+ |---|---|---|
+ | **Append** | Only new rows appended since last trigger | Any query without aggregation (or with watermark) |
+ | **Complete** | Entire result table is written every trigger | Aggregation queries only |
+ | **Update** | Only rows that changed since last trigger | Aggregations + watermarked operations |
+
+ **Key Rule**: Aggregations (groupBy) produce "updating" results — you CANNOT use
+ Append mode without a watermark. Use Complete for small state, Update for efficiency.
 
 ```python
 print("=" * 60)
@@ -405,23 +421,24 @@ q_update.stop()
 print("\n✅ All three output modes demonstrated.")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 44: Stream-Static Joins
 
-**Pattern**: Join a streaming DataFrame with a *static* (batch) DataFrame to enrich
-events with reference data. The classic use case: enrich raw IoT sensor readings
-with device metadata.
+ ---
+ ## Concept 44: Stream-Static Joins
 
-**Important**: The static side is re-read for **every micro-batch**. For large static
-tables, broadcast the static DataFrame to avoid repeated shuffles.
+ **Pattern**: Join a streaming DataFrame with a *static* (batch) DataFrame to enrich
+ events with reference data. The classic use case: enrich raw IoT sensor readings
+ with device metadata.
 
-**Limitations**:
-- ✅ Inner join, left-outer, right-outer, cross join: Supported
-- ⚠️ Full outer join: NOT supported on streaming DataFrames
-- ✅ Static side can be any size (broadcast if large)
+ **Important**: The static side is re-read for **every micro-batch**. For large static
+ tables, broadcast the static DataFrame to avoid repeated shuffles.
+
+ **Limitations**:
+ - ✅ Inner join, left-outer, right-outer, cross join: Supported
+ - ⚠️ Full outer join: NOT supported on streaming DataFrames
+ - ✅ Static side can be any size (broadcast if large)
 
 ```python
 print("=" * 60)
@@ -519,22 +536,23 @@ q_enrich_left.stop()
 print("✅ Stream-static joins demonstrated (inner + left-outer).")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 45: Windowed Aggregations
 
-**Window types**:
+ ---
+ ## Concept 45: Windowed Aggregations
 
-- **Tumbling window**: `window(event_time, "10 minutes")` — fixed, non-overlapping
-  (slide = window duration → no overlap)
+ **Window types**:
 
-- **Sliding window**: `window(event_time, "10 minutes", "5 minutes")` — overlapping windows
-  (slide < window duration → overlap)
+ - **Tumbling window**: `window(event_time, "10 minutes")` — fixed, non-overlapping
+   (slide = window duration → no overlap)
 
-**Without a watermark**, Spark keeps ALL state forever (unbounded memory).
-For production, always pair windows with a watermark (Concept #49).
+ - **Sliding window**: `window(event_time, "10 minutes", "5 minutes")` — overlapping windows
+   (slide < window duration → overlap)
+
+ **Without a watermark**, Spark keeps ALL state forever (unbounded memory).
+ For production, always pair windows with a watermark (Concept #49).
 
 ```python
 print("=" * 60)
@@ -628,22 +646,23 @@ q_slide.stop()
 print("\n✅ Tumbling and sliding windows demonstrated.")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 46: foreachBatch Pattern
 
-`foreachBatch` lets you apply **arbitrary batch logic** to each micro-batch of a
-streaming query. This is the most flexible sink — you can:
+ ---
+ ## Concept 46: foreachBatch Pattern
 
-- Write to **multiple sinks** from a single streaming query
-- Perform **MERGE (upsert)** operations in Delta
-- Apply custom transformations
-- Call external services (APIs) per micro-batch
+ `foreachBatch` lets you apply **arbitrary batch logic** to each micro-batch of a
+ streaming query. This is the most flexible sink — you can:
 
-⚠️ **Exactly-once warning**: If you write to external systems from foreachBatch,
-you must ensure your logic is **idempotent** (Spark may replay micro-batches).
+ - Write to **multiple sinks** from a single streaming query
+ - Perform **MERGE (upsert)** operations in Delta
+ - Apply custom transformations
+ - Call external services (APIs) per micro-batch
+
+ ⚠️ **Exactly-once warning**: If you write to external systems from foreachBatch,
+ you must ensure your logic is **idempotent** (Spark may replay micro-batches).
 
 ```python
 print("=" * 60)
@@ -651,8 +670,7 @@ print("CONCEPT 46 — foreachBatch Pattern")
 print("=" * 60)
 
 # Prepare Delta sink for MERGE
-delta_merge_path = f"{DELTA_SINK_DIR}/foreachBatch_merge_q46"
-dbutils.fs.rm(delta_merge_path, True)
+spark.sql(f"DROP TABLE IF EXISTS {DB}.foreachbatch_merge_q46")
 
 # Create an empty Delta table with schema
 merge_schema = StructType([
@@ -662,8 +680,8 @@ merge_schema = StructType([
     StructField("last_updated", TimestampType())
 ])
 empty_df = spark.createDataFrame([], merge_schema)
-empty_df.write.format("delta").mode("overwrite").save(delta_merge_path)
-print(f"📁 Empty Delta table created at: {delta_merge_path}")
+empty_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.foreachbatch_merge_q46")
+print(f"📁 Empty Delta table created: {DB}.foreachbatch_merge_q46")
 
 # ── foreachBatch: write to BOTH a memory sink AND a Delta table with MERGE ──
 source_stream = (
@@ -698,7 +716,7 @@ def process_micro_batch(df_batch, epoch_id):
 
     # Merge into Delta: upsert per sensor_id
     from delta.tables import DeltaTable
-    delta_table = DeltaTable.forPath(spark, delta_merge_path)
+    delta_table = DeltaTable.forName(spark, f"{DB}.foreachbatch_merge_q46")
 
     (delta_table.alias("target")
      .merge(agg_batch.alias("source"),
@@ -732,26 +750,27 @@ q_foreach.stop()
 
 # ── Show the merged Delta table ──
 print("\n📊 Final Delta table (upserted by sensor_id):")
-spark.read.format("delta").load(delta_merge_path).show(truncate=False)
+spark.read.table(f"{DB}.foreachbatch_merge_q46").show(truncate=False)
 
 print("\n✅ foreachBatch pattern with Delta MERGE demonstrated.")
 
 ```
+
 ```python
 ```
-%md
 
-### foreachBatch — Multiple Sinks from a Single Stream
 
-One of the most powerful patterns: split a single streaming query into multiple
-outputs (e.g., raw events + aggregated metrics).
+ ### foreachBatch — Multiple Sinks from a Single Stream
+
+ One of the most powerful patterns: split a single streaming query into multiple
+ outputs (e.g., raw events + aggregated metrics).
 
 ```python
 print("\n─── foreachBatch: Multiple Sinks ───")
 
-# Clean up dual-sink directories
-for dp in [DUAL_SINK_1, DUAL_SINK_2]:
-    dbutils.fs.rm(dp, True)
+# Clean up dual-sink tables
+for tbl in [f"{DB}.dual_sink_events", f"{DB}.dual_sink_summary"]:
+    spark.sql(f"DROP TABLE IF EXISTS {tbl}")
 
 events_schema = StructType([
     StructField("event_id", LongType()),
@@ -781,10 +800,10 @@ clickstream = (
 def write_to_multiple_sinks(df_batch, epoch_id):
     print(f"\n🔹 Multi-sink epoch={epoch_id}, rows={df_batch.count()}")
 
-    # Sink 1: raw events to Delta
-    df_batch.write.format("delta").mode("append").save(DUAL_SINK_1)
+    # Sink 1: raw events to managed Delta
+    df_batch.write.format("delta").mode("append").saveAsTable(f"{DB}.dual_sink_events")
 
-    # Sink 2: per-user summary to Delta
+    # Sink 2: per-user summary to managed Delta
     summary = (
         df_batch
         .groupBy("user_id")
@@ -795,7 +814,7 @@ def write_to_multiple_sinks(df_batch, epoch_id):
         )
         .withColumn("epoch_id", lit(epoch_id))
     )
-    summary.write.format("delta").mode("append").save(DUAL_SINK_2)
+    summary.write.format("delta").mode("append").saveAsTable(f"{DB}.dual_sink_summary")
 
     print(f"   ✅ Wrote to both sinks")
 
@@ -812,57 +831,57 @@ time.sleep(15)
 q_multi.stop()
 
 print("\n📊 Sink 1 — Raw events:")
-spark.read.format("delta").load(DUAL_SINK_1).show(10, truncate=False)
+spark.read.table(f"{DB}.dual_sink_events").show(10, truncate=False)
 
 print("\n📊 Sink 2 — Per-user summaries:")
-spark.read.format("delta").load(DUAL_SINK_2).show(10, truncate=False)
+spark.read.table(f"{DB}.dual_sink_summary").show(10, truncate=False)
 
 print("\n✅ Multiple sinks from a single stream demo complete.")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 47: Streaming Tables in Lakeflow Pipelines (DLT)
 
-⚠️ **NOTE**: Delta Live Tables (DLT / Lakeflow Pipelines) are **NOT available** in
-Community Edition. This section explains the concepts and shows manual equivalents.
+ ---
+ ## Concept 47: Streaming Tables in Lakeflow Pipelines (DLT)
 
-**What are Streaming Tables?**
-- **Managed streaming ingestion** in DLT — you declare a table "as streaming" using
-  the `STREAMING` keyword (or `readStream` in Python DLT decorators)
-- DLT auto-manages **checkpoints**, **schema evolution**, and **error handling**
-- Streaming tables are always "append-only" — they append rows from the source
+ ⚠️ **NOTE**: Delta Live Tables (DLT / Lakeflow Pipelines) are **NOT available** in
+ Community Edition. This section explains the concepts and shows manual equivalents.
 
-**DLT Streaming Table (Python — NOT runnable in CE)**:
-```python
-import dlt
-@dlt.table(name="bronze_events")
-def bronze():
-    return spark.readStream.format("cloudFiles").load(source_path)
-```
+ **What are Streaming Tables?**
+ - **Managed streaming ingestion** in DLT — you declare a table "as streaming" using
+   the `STREAMING` keyword (or `readStream` in Python DLT decorators)
+ - DLT auto-manages **checkpoints**, **schema evolution**, and **error handling**
+ - Streaming tables are always "append-only" — they append rows from the source
 
-**vs. Manual Structured Streaming**:
-| Feature | DLT Streaming Tables | Manual Structured Streaming |
-|---|---|---|
-| Checkpoint mgmt | Auto | Manual (must specify path) |
-| Schema enforcement | Built-in expectations | Manual validation |
-| Error handling | Dead letter queue | Manual try/except or skip |
-| Monitoring | DLT event log | `spark.streams.active`, metrics |
-| Restartability | Full auto-recovery | Checkpoint-dependent |
+ **DLT Streaming Table (Python — NOT runnable in CE)**:
+ ```python
+ import dlt
+ @dlt.table(name="bronze_events")
+ def bronze():
+     return spark.readStream.format("cloudFiles").load(source_path)
+ ```
 
-Below is the **manual equivalent** of a streaming table:
+ **vs. Manual Structured Streaming**:
+ | Feature | DLT Streaming Tables | Manual Structured Streaming |
+ |---|---|---|
+ | Checkpoint mgmt | Auto | Manual (must specify path) |
+ | Schema enforcement | Built-in expectations | Manual validation |
+ | Error handling | Dead letter queue | Manual try/except or skip |
+ | Monitoring | DLT event log | `spark.streams.active`, metrics |
+ | Restartability | Full auto-recovery | Checkpoint-dependent |
+
+ Below is the **manual equivalent** of a streaming table:
 
 ```python
 print("=" * 60)
 print("CONCEPT 47 — Streaming Tables (Manual Equivalent)")
 print("=" * 60)
 
-delta_streaming_table_path = f"{DELTA_SINK_DIR}/manual_streaming_table_q47"
-dbutils.fs.rm(delta_streaming_table_path, True)
+spark.sql(f"DROP TABLE IF EXISTS {DB}.manual_streaming_table_q47")
 
-# ── Manual "streaming table": readStream → writeStream to Delta ──
+# ── Manual "streaming table": readStream → writeStream to managed Delta ──
 streaming_source = (
     spark.readStream
     .format("rate")
@@ -877,16 +896,16 @@ manual_streaming_table = (
     .writeStream
     .format("delta")
     .outputMode("append")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/manual_streaming_q47")
+    .option("checkpointLocation", get_checkpoint("manual_streaming_q47"))
     .trigger(processingTime="5 seconds")
-    .start(delta_streaming_table_path)
+    .start(f"{DB}.manual_streaming_table_q47")
 )
 
-print("📤 Manual streaming table writing to Delta...")
+print("📤 Manual streaming table writing to managed Delta...")
 time.sleep(15)
 
 # Read the "streaming table" as a batch
-df_streaming_table = spark.read.format("delta").load(delta_streaming_table_path)
+df_streaming_table = spark.read.table(f"{DB}.manual_streaming_table_q47")
 print(f"\n📊 Manual streaming table row count: {df_streaming_table.count()}")
 df_streaming_table.orderBy(col("timestamp").desc()).show(5, truncate=False)
 
@@ -908,35 +927,36 @@ print("""
 print("✅ Concept 47 — DLT streaming tables explained.")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 48: Checkpointing & Exactly-Once Guarantees
 
-**Checkpointing** is the mechanism that enables fault-tolerance and exactly-once
-semantics in Structured Streaming.
+ ---
+ ## Concept 48: Checkpointing & Exactly-Once Guarantees
 
-**What's in a checkpoint directory?**
-- `offsets/` — the position in the source stream (which data has been consumed)
-- `commits/` — which micro-batches completed successfully
-- `metadata` — streaming query identity
-- `state/` — aggregation state (for stateful operations with watermark)
+ **Checkpointing** is the mechanism that enables fault-tolerance and exactly-once
+ semantics in Structured Streaming.
 
-**Exactly-once boundaries**:
-- ✅ **Source**: replayable sources (Kafka, Delta, Kinesis) → exactly-once
-- ✅ **Sink**: idempotent sinks (Delta, file with `_spark_metadata`) → exactly-once
-- ⚠️ **External systems** (foreachBatch → REST APIs) → at-least-once (must be idempotent)
+ **What's in a checkpoint directory?**
+ - `offsets/` — the position in the source stream (which data has been consumed)
+ - `commits/` — which micro-batches completed successfully
+ - `metadata` — streaming query identity
+ - `state/` — aggregation state (for stateful operations with watermark)
 
-**Golden rule**: Each streaming query must have its own **unique, stable checkpoint location**.
+ **Exactly-once boundaries**:
+ - ✅ **Source**: replayable sources (Kafka, Delta, Kinesis) → exactly-once
+ - ✅ **Sink**: idempotent sinks (Delta, file with `_spark_metadata`) → exactly-once
+ - ⚠️ **External systems** (foreachBatch → REST APIs) → at-least-once (must be idempotent)
+
+ **Golden rule**: Each streaming query must have its own **unique, stable checkpoint location**.
 
 ```python
 print("=" * 60)
 print("CONCEPT 48 — Checkpointing & Exactly-Once")
 print("=" * 60)
 
-checkpoint_q48 = f"{CHECKPOINT_DIR}/checkpoint_demo_q48"
-dbutils.fs.rm(checkpoint_q48, True)
+checkpoint_q48 = get_checkpoint("checkpoint_demo_q48")
+shutil.rmtree(checkpoint_q48, ignore_errors=True)
 
 # ── Run a stream with a checkpoint ──
 q_with_checkpoint = (
@@ -998,7 +1018,7 @@ print(f"   In production (Kafka/Delta), checkpoint ensures NO data loss/duplicat
 q_restarted.stop()
 
 # ── What happens if you DELETE the checkpoint? ──
-dbutils.fs.rm(checkpoint_q48, True)
+shutil.rmtree(checkpoint_q48, ignore_errors=True)
 print(f"\n🗑️  Checkpoint deleted: {checkpoint_q48}")
 print("   If you restart without the checkpoint:")
 print("   • All offsets are lost → stream re-reads from start (DUPLICATE DATA)")
@@ -1008,27 +1028,28 @@ print("   • NEVER delete a production checkpoint unless you understand the con
 print("\n✅ Checkpointing & exactly-once semantics demonstrated.")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 49: Watermarks & Late Data
 
-**Problem**: With streaming aggregations, intermediate state grows unboundedly.
-Spark must remember ALL seen keys FOREVER — memory leak!
+ ---
+ ## Concept 49: Watermarks & Late Data
 
-**Solution**: `withWatermark()` — tells Spark "wait up to N seconds for late data,
-then drop old state."
+ **Problem**: With streaming aggregations, intermediate state grows unboundedly.
+ Spark must remember ALL seen keys FOREVER — memory leak!
 
-**Tradeoff**:
-- **Shorter watermark** = less state, lower memory, BUT more data labeled "too late"
-- **Longer watermark** = more completeness, BUT more memory and latency
+ **Solution**: `withWatermark()` — tells Spark "wait up to N seconds for late data,
+ then drop old state."
 
-**How it works**:
-- Spark tracks the maximum event-time seen so far
-- Watermark = max_event_time - watermark_duration
-- Any window with end < watermark is DROPPED (state cleaned up)
-- New data with timestamp < watermark is considered "too late" and DROPPED
+ **Tradeoff**:
+ - **Shorter watermark** = less state, lower memory, BUT more data labeled "too late"
+ - **Longer watermark** = more completeness, BUT more memory and latency
+
+ **How it works**:
+ - Spark tracks the maximum event-time seen so far
+ - Watermark = max_event_time - watermark_duration
+ - Any window with end < watermark is DROPPED (state cleaned up)
+ - New data with timestamp < watermark is considered "too late" and DROPPED
 
 ```python
 print("=" * 60)
@@ -1079,7 +1100,7 @@ q_watermark = (
     .format("memory")
     .queryName("watermarked_q49")
     .outputMode("update")  # MUST be "update" or "append" with watermark
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/watermark_q49")
+    .option("checkpointLocation", get_checkpoint("watermark_q49"))
     .trigger(processingTime="10 seconds")
     .start()
 )
@@ -1116,7 +1137,7 @@ q_no_watermark = (
     .format("memory")
     .queryName("no_watermark_q49")
     .outputMode("complete")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/no_watermark_q49")
+    .option("checkpointLocation", get_checkpoint("no_watermark_q49"))
     .trigger(processingTime="10 seconds")
     .start()
 )
@@ -1144,24 +1165,25 @@ print("""
 print("✅ Watermarks demonstrated — state management vs completeness tradeoff.")
 
 ```
+
 ```python
 ```
-%md
----
-## Concept 50: Stream-Stream Joins
 
-**The hardest streaming problem**: Joining *two* unbounded streams.
+ ---
+ ## Concept 50: Stream-Stream Joins
 
-**Requirements for stream-stream joins**:
-1. **Watermarks on BOTH streams** — Spark must know when to stop waiting for late rows
-2. **Time constraint in join condition** — "join within N seconds of each other"
-3. **State management** — Spark keeps rows in buffer for watermark duration on both sides
+ **The hardest streaming problem**: Joining *two* unbounded streams.
 
-**Join types supported**: Inner, left-outer, right-outer (all require watermarks)
+ **Requirements for stream-stream joins**:
+ 1. **Watermarks on BOTH streams** — Spark must know when to stop waiting for late rows
+ 2. **Time constraint in join condition** — "join within N seconds of each other"
+ 3. **State management** — Spark keeps rows in buffer for watermark duration on both sides
 
-**How it works**: Spark buffers rows from each stream. For each new row, it looks
-up the *other* stream's buffer. When watermark advances past a row's timestamp,
-the row is evicted from state (prevents infinite memory growth).
+ **Join types supported**: Inner, left-outer, right-outer (all require watermarks)
+
+ **How it works**: Spark buffers rows from each stream. For each new row, it looks
+ up the *other* stream's buffer. When watermark advances past a row's timestamp,
+ the row is evicted from state (prevents infinite memory growth).
 
 ```python
 print("=" * 60)
@@ -1239,7 +1261,7 @@ q_ss_join = (
     .format("memory")
     .queryName("stream_stream_join_q50")
     .outputMode("append")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/stream_join_q50")
+    .option("checkpointLocation", get_checkpoint("stream_join_q50"))
     .trigger(processingTime="10 seconds")
     .start()
 )
@@ -1293,7 +1315,7 @@ q_ss_left = (
     .format("memory")
     .queryName("stream_stream_left_q50")
     .outputMode("append")
-    .option("checkpointLocation", f"{CHECKPOINT_DIR}/stream_join_left_q50")
+    .option("checkpointLocation", get_checkpoint("stream_join_left_q50"))
     .trigger(processingTime="10 seconds")
     .start()
 )
@@ -1331,79 +1353,82 @@ print("""
 print("✅ Stream-stream joins demonstrated.")
 
 ```
-```python
-```
-%md
----
-## 📊 Summary — Concepts #41–#50
-
-| # | Concept | Key Takeaway |
-|---|---------|---------------|
-| 41 | Structured Streaming Fundamentals | Stream = unbounded table; `readStream` / `writeStream` |
-| 42 | Triggers | `processingTime` for latency, `availableNow` for batch-like |
-| 43 | Output Modes | Append (new rows), Complete (full result), Update (changed rows) |
-| 44 | Stream-Static Joins | Enrich streams with batch reference data (inner/left/right) |
-| 45 | Windowed Aggregations | Tumbling (fixed) & sliding (overlapping) windows |
-| 46 | foreachBatch | Arbitrary batch logic per micro-batch; MERGE, multi-sink |
-| 47 | DLT Streaming Tables | Managed streaming tables (not in CE — explained conceptually) |
-| 48 | Checkpointing | Fault tolerance via offsets/commits; NEVER delete checkpoints |
-| 49 | Watermarks | Bound state growth: longer = more complete, more memory |
-| 50 | Stream-Stream Joins | Both streams need watermarks + time constraint |
-
-**Community Edition Limitations Encountered**:
-- ✅ `rate` source works perfectly for synthetic streaming data
-- ✅ `memory` sink is ideal for demos and quick inspection
-- ✅ Delta as sink & source works on CE
-- ✅ Checkpointing works within a single session
-- ❌ Cross-session checkpoint recovery may not work (single node, no persistent state)
-- ❌ DLT/Lakeflow pipelines are NOT available
-- ❌ Kafka source/sink requires external Kafka cluster (not included)
-
-**Next Steps**: Proceed to `06_Advanced_Pipelines.py` for medallion architecture
-and advanced Delta operations.
 
 ```python
 ```
-%md
----
-## 📝 Self-Assessment — Concepts #41–#50
 
-Answer these questions to check your understanding:
+ ---
+ ## 📊 Summary — Concepts #41–#50
 
-1. **How does Structured Streaming differ from batch processing?**
+ | # | Concept | Key Takeaway |
+ |---|---------|---------------|
+ | 41 | Structured Streaming Fundamentals | Stream = unbounded table; `readStream` / `writeStream` |
+ | 42 | Triggers | `processingTime` for latency, `availableNow` for batch-like |
+ | 43 | Output Modes | Append (new rows), Complete (full result), Update (changed rows) |
+ | 44 | Stream-Static Joins | Enrich streams with batch reference data (inner/left/right) |
+ | 45 | Windowed Aggregations | Tumbling (fixed) & sliding (overlapping) windows |
+ | 46 | foreachBatch | Arbitrary batch logic per micro-batch; MERGE, multi-sink |
+ | 47 | DLT Streaming Tables | Managed streaming tables (not in CE — explained conceptually) |
+ | 48 | Checkpointing | Fault tolerance via offsets/commits; NEVER delete checkpoints |
+ | 49 | Watermarks | Bound state growth: longer = more complete, more memory |
+ | 50 | Stream-Stream Joins | Both streams need watermarks + time constraint |
 
-2. **When would you use `availableNow` trigger instead of `processingTime`?**
+ **Community Edition Limitations Encountered**:
+ - ✅ `rate` source works perfectly for synthetic streaming data
+ - ✅ `memory` sink is ideal for demos and quick inspection
+ - ✅ Delta as sink & source works on CE
+ - ✅ Checkpointing works within a single session
+ - ❌ Cross-session checkpoint recovery may not work (single node, no persistent state)
+ - ❌ DLT/Lakeflow pipelines are NOT available
+ - ❌ Kafka source/sink requires external Kafka cluster (not included)
 
-3. **Why can't you use Append mode with aggregation queries (without watermark)?**
+ **Next Steps**: Proceed to `06_Advanced_Pipelines.py` for medallion architecture
+ and advanced Delta operations.
 
-4. **What happens to the static side of a stream-static join on each micro-batch?**
+```python
+```
 
-5. **What's the difference between a tumbling window and a sliding window?**
+ ---
+ ## 📝 Self-Assessment — Concepts #41–#50
 
-6. **What is foreachBatch used for? Give two practical examples.**
+ Answer these questions to check your understanding:
 
-7. **What does DLT provide that raw Structured Streaming does not?**
+ 1. **How does Structured Streaming differ from batch processing?**
 
-8. **What's stored in the checkpoint directory, and why must it be unique per query?**
+ 2. **When would you use `availableNow` trigger instead of `processingTime`?**
 
-9. **What is the tradeoff of a longer watermark duration?**
+ 3. **Why can't you use Append mode with aggregation queries (without watermark)?**
 
-10. **What two things are required for stream-stream joins that are not needed for stream-static joins?**
+ 4. **What happens to the static side of a stream-static join on each micro-batch?**
 
-%md
-### ✅ CONGRATULATIONS!
+ 5. **What's the difference between a tumbling window and a sliding window?**
 
-You've completed the Structured Streaming section (Concepts #41–#50). You now understand:
+ 6. **What is foreachBatch used for? Give two practical examples.**
 
-- The core streaming API (readStream/writeStream)
-- Controlling micro-batch timing with triggers
-- Choosing the right output mode for your query
-- Enriching streaming data with static reference tables
-- Computing windowed aggregations (tumbling & sliding)
-- Using `foreachBatch` for advanced custom logic and multi-sink patterns
-- The value of DLT streaming tables in managed environments
-- Ensuring exactly-once delivery through checkpointing
-- Managing state growth with watermarks
-- Joining two live streams with time-constrained conditions
+ 7. **What does DLT provide that raw Structured Streaming does not?**
 
-Continue to `06_Advanced_Pipelines.py` for the medallion architecture and advanced Delta operations!
+ 8. **What's stored in the checkpoint directory, and why must it be unique per query?**
+
+ 9. **What is the tradeoff of a longer watermark duration?**
+
+ 10. **What two things are required for stream-stream joins that are not needed for stream-static joins?**
+
+```python
+```
+
+ ### ✅ CONGRATULATIONS!
+
+ You've completed the Structured Streaming section (Concepts #41–#50). You now understand:
+
+ - The core streaming API (readStream/writeStream)
+ - Controlling micro-batch timing with triggers
+ - Choosing the right output mode for your query
+ - Enriching streaming data with static reference tables
+ - Computing windowed aggregations (tumbling & sliding)
+ - Using `foreachBatch` for advanced custom logic and multi-sink patterns
+ - The value of DLT streaming tables in managed environments
+ - Ensuring exactly-once delivery through checkpointing
+ - Managing state growth with watermarks
+ - Joining two live streams with time-constrained conditions
+
+ Continue to `06_Advanced_Pipelines.py` for the medallion architecture and advanced Delta operations!

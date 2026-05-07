@@ -1,48 +1,49 @@
 
-# 10 — Architecture & Advanced Patterns
+ # 10 — Architecture & Advanced Patterns
 
-**Concepts Covered:** #91–#100  
-**Environment:** Databricks Community Edition (single-node, free)  
-**Goal:** Master advanced architecture patterns, performance diagnostics, testing frameworks, and capstone integration of all 100 concepts.
+ **Concepts Covered:** #91–#100  
+ **Environment:** Databricks Community Edition (single-node, free)  
+ **Goal:** Master advanced architecture patterns, performance diagnostics, testing frameworks, and capstone integration of all 100 concepts.
 
-| # | Concept | Difficulty | Type |
-|---|---------|------------|------|
-| 91 | Shallow vs. Deep Clones | Easy | Hands-on |
-| 92 | Managed vs. External Tables: Architecture Tradeoffs | Medium | Hands-on |
-| 93 | Legacy: Partitioning & Z-ORDER | Medium | Hands-on |
-| 94 | Lakehouse Table Design Patterns | Medium | Hands-on |
-| 95 | Delta UniForm & Multi-Engine Interoperability | Medium | Conceptual |
-| 96 | Compute Policies & Cluster Governance | Medium | Conceptual |
-| 97 | AI Functions for Data Engineers | Hard | Conceptual |
-| 98 | Multi-Workspace Architecture | Hard | Conceptual |
-| 99 | Performance Troubleshooting Methodology | Hard | Hands-on |
-| 100 | Testing Patterns for Data Pipelines | Hard | Hands-on |
+ | # | Concept | Difficulty | Type |
+ |---|---------|------------|------|
+ | 91 | Shallow vs. Deep Clones | Easy | Hands-on |
+ | 92 | Managed vs. External Tables: Architecture Tradeoffs | Medium | Hands-on |
+ | 93 | Legacy: Partitioning & Z-ORDER | Medium | Hands-on |
+ | 94 | Lakehouse Table Design Patterns | Medium | Hands-on |
+ | 95 | Delta UniForm & Multi-Engine Interoperability | Medium | Conceptual |
+ | 96 | Compute Policies & Cluster Governance | Medium | Conceptual |
+ | 97 | AI Functions for Data Engineers | Hard | Conceptual |
+ | 98 | Multi-Workspace Architecture | Hard | Conceptual |
+ | 99 | Performance Troubleshooting Methodology | Hard | Hands-on |
+ | 100 | Testing Patterns for Data Pipelines | Hard | Hands-on |
 
----
+ ---
 
-### GRAND FINALE
+ ### GRAND FINALE
 
-This is the **capstone notebook** of the 100-Concept Databricks Professional Learning series. It ties together concepts from all previous notebooks (#1–#90) and pushes into production-grade architecture and engineering patterns.
+ This is the **capstone notebook** of the 100-Concept Databricks Professional Learning series. It ties together concepts from all previous notebooks (#1–#90) and pushes into production-grade architecture and engineering patterns.
 
-**References to prior notebooks:**
-- Notebook 01: Delta Lake Fundamentals (#1–#10)
-- Notebook 02: Spark Execution Model (#11–#20)
-- Notebook 03: SQL & DataFrames (#21–#30)
-- Notebook 04: Data Ingestion Patterns (#31–#40)
-- Notebook 05: Streaming & Incremental Patterns (#41–#50)
-- Notebook 06: Performance & Cost Optimization (#51–#60)
-- Notebook 07: Security & Governance (#61–#70)
-- Notebook 08: Orchestration & Workflows (#71–#80)
-- Notebook 09: MLflow & ML Engineering (#81–#90)
+ **References to prior notebooks:**
+ - Notebook 01: Delta Lake Fundamentals (#1–#10)
+ - Notebook 02: Spark Execution Model (#11–#20)
+ - Notebook 03: SQL & DataFrames (#21–#30)
+ - Notebook 04: Data Ingestion Patterns (#31–#40)
+ - Notebook 05: Streaming & Incremental Patterns (#41–#50)
+ - Notebook 06: Performance & Cost Optimization (#51–#60)
+ - Notebook 07: Security & Governance (#61–#70)
+ - Notebook 08: Orchestration & Workflows (#71–#80)
+ - Notebook 09: MLflow & ML Engineering (#81–#90)
 
----
+ ---
 
 ```python
 
 ```
-## Setup: Environment & Synthetic Data
 
-We create a dedicated working directory and generate synthetic sales, customer, and product datasets used throughout all 10 concepts.
+ ## Setup: Environment & Synthetic Data
+
+ We create a dedicated working directory and generate synthetic sales, customer, and product datasets used throughout all 10 concepts.
 
 ```python
 
@@ -54,9 +55,16 @@ from pyspark.sql.functions import *
 from pyspark.sql.types import *
 from pyspark.sql.window import Window
 
-base_dir = "/tmp/architecture_advanced_patterns"
-dbutils.fs.rm(base_dir, recurse=True)
-print(f"Working directory: {base_dir}")
+DB = "default"
+for t in ["arch_sales", "arch_customers", "arch_products",
+          "arch_clone_source", "arch_sales_external",
+          "arch_drop_test_external", "arch_partitioned", "arch_zorder",
+          "arch_dim_date_tmp", "arch_large_sales", "arch_large_dim"]:
+    try:
+        spark.sql(f"DROP TABLE IF EXISTS {DB}.{t}")
+    except:
+        pass
+print(f"Working database: {DB}")
 
 # ── Synthetic Sales Transactions ──────────────────────────────────
 sales_data = []
@@ -78,7 +86,7 @@ sales_df = spark.createDataFrame(sales_data, [
     "amount", "store_id", "region", "year", "month", "status"
 ])
 sales_df.write.format("delta").mode("overwrite").option("mergeSchema", "true") \
-    .save(f"{base_dir}/sales")
+    .saveAsTable(f"{DB}.arch_sales")
 
 # ── Customer Dimension ────────────────────────────────────────────
 customer_data = []
@@ -98,7 +106,7 @@ cust_df = spark.createDataFrame(customer_data, [
     "customer_id", "customer_name", "segment", "tier", "region", "acquisition_date"
 ])
 cust_df.write.format("delta").mode("overwrite").option("mergeSchema", "true") \
-    .save(f"{base_dir}/customers")
+    .saveAsTable(f"{DB}.arch_customers")
 
 # ── Product Dimension ─────────────────────────────────────────────
 product_data = []
@@ -115,7 +123,7 @@ prod_df = spark.createDataFrame(product_data, [
     "product_id", "product_name", "category", "list_price"
 ])
 prod_df.write.format("delta").mode("overwrite").option("mergeSchema", "true") \
-    .save(f"{base_dir}/products")
+    .saveAsTable(f"{DB}.arch_products")
 
 print("Setup complete. Created:")
 print(f"  sales:     {sales_df.count()} rows x {len(sales_df.columns)} cols")
@@ -127,32 +135,34 @@ print(f"  products:  {prod_df.count()} rows x {len(prod_df.columns)} cols")
 ```python
 
 ```
----
-## Concept 91 — Shallow vs. Deep Clones [Easy]
 
-### What Problem It Solves
+ ---
+ ## Concept 91 — Shallow vs. Deep Clones [Easy]
 
-You need a copy of a Delta table for development, testing, or migration — but copying terabytes of data is slow and expensive. Delta Lake provides two cloning strategies that let you choose between speed and independence.
+ ### What Problem It Solves
 
-### Key Concepts
+ You need a copy of a Delta table for development, testing, or migration — but copying terabytes of data is slow and expensive. Delta Lake provides two cloning strategies that let you choose between speed and independence.
 
-| Property | SHALLOW CLONE | DEEP CLONE |
-|---|---|---|
-| **Data copy?** | No — references source files | Yes — full independent copy |
-| **Speed** | O(1) — metadata-only operation | O(data size) |
-| **Storage cost** | Nearly zero (metadata only) | Full duplicate of data |
-| **Independence** | Depends on source files existing | Fully independent |
-| **VACUUM risk** | If source is VACUUMed, clone breaks | No risk |
-| **Use case** | Dev/test, short-lived experiments | Migration, snapshots, hand-offs |
+ ### Key Concepts
 
-### Real-World Use Cases
-- **Shallow Clone:** Create a QA copy of production data for testing — instant, costs nothing extra.
-- **Deep Clone:** Migrate a table to a new storage location or cloud provider; create an immutable snapshot for audit.
+ | Property | SHALLOW CLONE | DEEP CLONE |
+ |---|---|---|
+ | **Data copy?** | No — references source files | Yes — full independent copy |
+ | **Speed** | O(1) — metadata-only operation | O(data size) |
+ | **Storage cost** | Nearly zero (metadata only) | Full duplicate of data |
+ | **Independence** | Depends on source files existing | Fully independent |
+ | **VACUUM risk** | If source is VACUUMed, clone breaks | No risk |
+ | **Use case** | Dev/test, short-lived experiments | Migration, snapshots, hand-offs |
+
+ ### Real-World Use Cases
+ - **Shallow Clone:** Create a QA copy of production data for testing — instant, costs nothing extra.
+ - **Deep Clone:** Migrate a table to a new storage location or cloud provider; create an immutable snapshot for audit.
 
 ```python
 
 ```
-### Step 1: Create the Source Table
+
+ ### Step 1: Create the Source Table
 
 ```python
 
@@ -160,11 +170,11 @@ print("=" * 60)
 print("CONCEPT 91: SHALLOW vs DEEP CLONES")
 print("=" * 60)
 
-source_table = f"{base_dir}/clone_source"
-sales_df.write.format("delta").mode("overwrite").save(source_table)
+source_table = f"{DB}.arch_clone_source"
+sales_df.write.format("delta").mode("overwrite").saveAsTable(source_table)
 
 # Register as SQL table
-spark.sql(f"CREATE OR REPLACE TABLE clone_source USING DELTA LOCATION '{source_table}'")
+spark.sql(f"CREATE OR REPLACE TABLE clone_source USING DELTA AS SELECT * FROM {source_table}")
 
 print("\nSource table details:")
 spark.sql("DESCRIBE DETAIL clone_source").select(
@@ -176,7 +186,8 @@ spark.sql("DESCRIBE DETAIL clone_source").select(
 ```python
 
 ```
-### Step 2: Create a SHALLOW CLONE (Zero-Copy)
+
+ ### Step 2: Create a SHALLOW CLONE (Zero-Copy)
 
 ```python
 
@@ -203,7 +214,8 @@ print(f"      This is why it's near-instant: only metadata is duplicated.")
 ```python
 
 ```
-### Step 3: Create a DEEP CLONE (Full Independent Copy)
+
+ ### Step 3: Create a DEEP CLONE (Full Independent Copy)
 
 ```python
 
@@ -228,7 +240,8 @@ print(f"  Deep clone:    {t_deep:.3f}s (full data copy + metadata)")
 ```python
 
 ```
-### Step 4: Verify Data Independence
+
+ ### Step 4: Verify Data Independence
 
 ```python
 
@@ -256,7 +269,8 @@ print("  → Shows clones are logically independent (their own transaction logs)
 ```python
 
 ```
-### Step 5: Decision Tree
+
+ ### Step 5: Decision Tree
 
 ```python
 
@@ -294,44 +308,46 @@ print("""
 ```python
 
 ```
----
-## Concept 92 — Managed vs. External Tables: Architecture Tradeoffs [Medium]
 
-### What Problem It Solves
+ ---
+ ## Concept 92 — Managed vs. External Tables: Architecture Tradeoffs [Medium]
 
-When you create a Delta table, you choose who controls the data's lifecycle — Databricks (managed) or you (external). This decision has deep implications for governance, multi-engine access, disaster recovery, and cost.
+ ### What Problem It Solves
 
-### Key Concepts
+ When you create a Delta table, you choose who controls the data's lifecycle — Databricks (managed) or you (external). This decision has deep implications for governance, multi-engine access, disaster recovery, and cost.
 
-| Property | MANAGED TABLE | EXTERNAL TABLE |
-|---|---|---|
-| **Data location** | Databricks chooses (Unity Catalog managed storage) | You specify the path |
-| **DROP TABLE** | Deletes data AND metadata | Deletes metadata only; data survives |
-| **Lifecycle** | Databricks controls retention, VACUUM, cleanup | You manage everything |
-| **Multi-engine access** | Limited (only through Databricks) | Any engine that reads Delta (Spark, Trino, Dremio, etc.) |
-| **Predictive Optimization** | Supported | Not supported (requires managed tables in Unity Catalog) |
-| **Governance** | Full Unity Catalog integration | You manage permissions on cloud storage too |
+ ### Key Concepts
 
-**NOTE:** Managed tables require Unity Catalog (full platform). In Community Edition we use `LOCATION` to control storage explicitly.
+ | Property | MANAGED TABLE | EXTERNAL TABLE |
+ |---|---|---|
+ | **Data location** | Databricks chooses (Unity Catalog managed storage) | You specify the path |
+ | **DROP TABLE** | Deletes data AND metadata | Deletes metadata only; data survives |
+ | **Lifecycle** | Databricks controls retention, VACUUM, cleanup | You manage everything |
+ | **Multi-engine access** | Limited (only through Databricks) | Any engine that reads Delta (Spark, Trino, Dremio, etc.) |
+ | **Predictive Optimization** | Supported | Not supported (requires managed tables in Unity Catalog) |
+ | **Governance** | Full Unity Catalog integration | You manage permissions on cloud storage too |
 
-### When to Use Each
+ **NOTE:** Managed tables require Unity Catalog (full platform). In Community Edition we use `LOCATION` to control storage explicitly.
 
-**Choose Managed when:**
-- Databricks is the sole compute engine
-- You want Predictive Optimization
-- Governance and lifecycle are managed centrally
-- Simpler operational model
+ ### When to Use Each
 
-**Choose External when:**
-- Multiple engines read the same data (Spark, Trino, Presto, Dremio, Snowflake, BigQuery)
-- You own the cloud storage lifecycle (regulatory/data residency requirements)
-- You need fine-grained control over file layout and retention policies
-- The data must survive DROP TABLE or workspace deletion
+ **Choose Managed when:**
+ - Databricks is the sole compute engine
+ - You want Predictive Optimization
+ - Governance and lifecycle are managed centrally
+ - Simpler operational model
+
+ **Choose External when:**
+ - Multiple engines read the same data (Spark, Trino, Presto, Dremio, Snowflake, BigQuery)
+ - You own the cloud storage lifecycle (regulatory/data residency requirements)
+ - You need fine-grained control over file layout and retention policies
+ - The data must survive DROP TABLE or workspace deletion
 
 ```python
 
 ```
-### Step 1: Create Managed-Style and External-Style Tables
+
+ ### Step 1: Create Managed-Style and External-Style Tables
 
 ```python
 
@@ -355,7 +371,8 @@ print("Managed-style table created (Databricks controls the data location).")
 
 # ── External-style table (explicit LOCATION) ─────────────────────
 spark.sql("DROP TABLE IF EXISTS sales_external")
-external_data_loc = f"{base_dir}/external_data/sales"
+sales_src = spark.table(f"{DB}.arch_sales")
+sales_src.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_sales_external")
 spark.sql(f"""
     CREATE TABLE sales_external (
         transaction_id INT,
@@ -364,17 +381,17 @@ spark.sql(f"""
         amount DECIMAL(10,2),
         store_id STRING
     ) USING DELTA
-    LOCATION '{external_data_loc}'
+    AS SELECT transaction_id, customer_id, product_id, amount, store_id FROM {DB}.arch_sales_external
 """)
-spark.sql("INSERT INTO sales_external SELECT transaction_id, customer_id, product_id, amount, store_id FROM clone_source")
-print(f"External-style table created at: {external_data_loc}")
+print(f"External-style table created (underlying data in {DB}.arch_sales_external)")
 
 ```
 
 ```python
 
 ```
-### Step 2: DESCRIBE EXTENDED — See the Table Type
+
+ ### Step 2: DESCRIBE EXTENDED — See the Table Type
 
 ```python
 
@@ -390,17 +407,23 @@ desc_external = spark.sql("DESCRIBE EXTENDED sales_external").filter(
 )
 desc_external.show(truncate=False)
 
-# ── List files for external table location ───────────────────────
-print(f"\nFiles at external data location ({external_data_loc}):")
-for f in dbutils.fs.ls(external_data_loc):
-    print(f"  {f.name}  ({f.size:,} bytes)")
+# ── Inspect external table metadata ───────────────────────
+print(f"\nExternal table details (sales_external):")
+spark.sql("DESCRIBE DETAIL sales_external").select(
+    "name", "location", "numFiles", "sizeInBytes"
+).show(truncate=False)
+print(f"\nUnderlying data store ({DB}.arch_sales_external):")
+spark.sql(f"DESCRIBE DETAIL {DB}.arch_sales_external").select(
+    "name", "numFiles", "sizeInBytes"
+).show(truncate=False)
 
 ```
 
 ```python
 
 ```
-### Step 3: DROP Behavior — The Critical Difference
+
+ ### Step 3: DROP Behavior — The Critical Difference
 
 ```python
 
@@ -412,41 +435,38 @@ spark.sql("""
 """)
 spark.sql("INSERT INTO drop_test_managed VALUES (1, 100.00), (2, 200.00)")
 
-drop_test_external_loc = f"{base_dir}/drop_test_external"
+drop_df = spark.createDataFrame([(1, 100.00), (2, 200.00)], ["transaction_id", "amount"])
+drop_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_drop_test_external")
 spark.sql(f"""
     CREATE TABLE IF NOT EXISTS drop_test_external (
         transaction_id INT, amount DECIMAL(10,2)
     ) USING DELTA
-    LOCATION '{drop_test_external_loc}'
+    AS SELECT * FROM {DB}.arch_drop_test_external
 """)
-spark.sql("INSERT INTO drop_test_external VALUES (1, 100.00), (2, 200.00)")
 
-# Verify data files exist
+# Verify table metadata
 print("Before DROP:")
-print(f"  External data files: {len([f for f in dbutils.fs.ls(drop_test_external_loc) if f.name.endswith('.parquet')])}")
+spark.sql("DESCRIBE DETAIL drop_test_external").select("name", "numFiles", "sizeInBytes").show(truncate=False)
 
 # ── DROP BOTH TABLES ─────────────────────────────────────────────
 spark.sql("DROP TABLE IF EXISTS drop_test_managed")
 spark.sql("DROP TABLE IF EXISTS drop_test_external")
 
 print("\nAfter DROP:")
-try:
-    files_after = [f for f in dbutils.fs.ls(drop_test_external_loc) if f.name.endswith('.parquet')]
-    print(f"  External data files STILL EXIST: {len(files_after)}")
-    print("  ✓ External table data SURVIVES DROP")
-except Exception as e:
-    print(f"  External data files NOT FOUND: {e}")
-    print("  (Managed table data would be deleted — cannot verify in Community Edition)")
+print(f"  drop_test_external metadata dropped")
+print(f"  {DB}.arch_drop_test_external still exists: {spark.catalog.tableExists(f'{DB}.arch_drop_test_external')}")
+print("  ✓ External-style data SURVIVES DROP — arch_drop_test_external retains the data")
 
 # Clean up
-dbutils.fs.rm(drop_test_external_loc, recurse=True)
+spark.sql(f"DROP TABLE IF EXISTS {DB}.arch_drop_test_external")
 
 ```
 
 ```python
 
 ```
-### Decision Matrix
+
+ ### Decision Matrix
 
 ```python
 
@@ -482,38 +502,40 @@ print("""
 ```python
 
 ```
----
-## Concept 93 — Legacy: Partitioning & Z-ORDER [Medium]
 
-### What Problem It Solves
+ ---
+ ## Concept 93 — Legacy: Partitioning & Z-ORDER [Medium]
 
-Before Liquid Clustering (Delta 3.0+, full platform), the primary ways to organize data for fast queries were **Hive-style partitioning** and **Z-ORDER**. While Liquid Clustering has largely superseded these, they remain relevant for legacy systems, external readers, and specific low-cardinality use cases.
+ ### What Problem It Solves
 
-### Key Concepts
+ Before Liquid Clustering (Delta 3.0+, full platform), the primary ways to organize data for fast queries were **Hive-style partitioning** and **Z-ORDER**. While Liquid Clustering has largely superseded these, they remain relevant for legacy systems, external readers, and specific low-cardinality use cases.
 
-**Partitioning:**
-- Divides data into folder hierarchies (e.g., `year=2024/month=01/`)
-- File-level pruning via directory listing — no metadata read needed
-- Works with ANY reader (even non-Delta!) — this is why it still matters
-- **Downside:** Too many partitions → small file problem; too few → no pruning benefit
-- **Rule of thumb:** Only partition on low-cardinality columns (year, month, region, category)
+ ### Key Concepts
 
-**Z-ORDER:**
-- Co-locates related data within the same set of files
-- Speeds up queries with filters on the Z-ORDER columns
-- Works WITHIN partitions (not as a replacement)
-- **Downside:** Must be reapplied after writes; maintenance overhead
+ **Partitioning:**
+ - Divides data into folder hierarchies (e.g., `year=2024/month=01/`)
+ - File-level pruning via directory listing — no metadata read needed
+ - Works with ANY reader (even non-Delta!) — this is why it still matters
+ - **Downside:** Too many partitions → small file problem; too few → no pruning benefit
+ - **Rule of thumb:** Only partition on low-cardinality columns (year, month, region, category)
 
-**Why Liquid Clustering is better:**
-- No manual partition key selection
-- Adaptive — reclusters incrementally
-- No small-file problem from bad partition choices
-- BUT: Requires Delta 3.0+ and full Databricks platform
+ **Z-ORDER:**
+ - Co-locates related data within the same set of files
+ - Speeds up queries with filters on the Z-ORDER columns
+ - Works WITHIN partitions (not as a replacement)
+ - **Downside:** Must be reapplied after writes; maintenance overhead
+
+ **Why Liquid Clustering is better:**
+ - No manual partition key selection
+ - Adaptive — reclusters incrementally
+ - No small-file problem from bad partition choices
+ - BUT: Requires Delta 3.0+ and full Databricks platform
 
 ```python
 
 ```
-### Step 1: Create a Hive-Partitioned Table
+
+ ### Step 1: Create a Hive-Partitioned Table
 
 ```python
 
@@ -522,7 +544,7 @@ print("CONCEPT 93: LEGACY PARTITIONING & Z-ORDER")
 print("=" * 60)
 
 # ── Create a larger dataset for meaningful partitioning ───────────
-partitioned_path = f"{base_dir}/legacy_partitioned"
+partitioned_table = f"{DB}.arch_partitioned"
 
 df_part = sales_df.withColumn("year_month", 
     concat(col("year").cast("string"), lit("-"), lpad(col("month").cast("string"), 2, "0"))
@@ -532,30 +554,31 @@ df_part.write \
     .format("delta") \
     .mode("overwrite") \
     .partitionBy("year", "month") \
-    .save(partitioned_path)
+    .saveAsTable(partitioned_table)
 
 print("Partitioned table created with partitionBy('year', 'month')")
-print(f"\nDirectory structure at {partitioned_path}:")
-for item in sorted(dbutils.fs.ls(partitioned_path), key=lambda x: x.name):
-    if item.name.startswith("year"):
-        print(f"  {item.name}/")
-        for sub in dbutils.fs.ls(item.path):
-            if sub.name.startswith("month"):
-                file_count = len([f for f in dbutils.fs.ls(sub.path) if f.name.endswith('.parquet')])
-                print(f"    {sub.name}/  ({file_count} parquet files)")
+print(f"\nTable details for {partitioned_table}:")
+spark.sql(f"DESCRIBE DETAIL {partitioned_table}").select(
+    "name", "numFiles", "partitionColumns"
+).show(truncate=False)
+
+# Show partition values
+print("\nPartition directory listing:")
+spark.sql(f"SHOW PARTITIONS {partitioned_table}").show(truncate=False)
 
 ```
 
 ```python
 
 ```
-### Step 2: Demonstrate Partition Pruning
+
+ ### Step 2: Demonstrate Partition Pruning
 
 ```python
 
 print("Query 1: Full table scan (no partition filter)")
 t0 = time.time()
-result_full = spark.sql(f"SELECT COUNT(*) FROM delta.`{partitioned_path}`").collect()[0][0]
+result_full = spark.sql(f"SELECT COUNT(*) FROM {partitioned_table}").collect()[0][0]
 t_full = time.time() - t0
 
 print(f"  Full scan: {result_full} rows in {t_full:.3f}s")
@@ -563,7 +586,7 @@ print(f"  Full scan: {result_full} rows in {t_full:.3f}s")
 print("\nQuery 2: Single partition filter (year=2024, month=6)")
 t0 = time.time()
 result_part = spark.sql(
-    f"SELECT COUNT(*) FROM delta.`{partitioned_path}` WHERE year = 2024 AND month = 6"
+    f"SELECT COUNT(*) FROM {partitioned_table} WHERE year = 2024 AND month = 6"
 ).collect()[0][0]
 t_part = time.time() - t0
 
@@ -572,7 +595,7 @@ print(f"  Partition filter: {result_part} rows in {t_part:.3f}s")
 # Show the query plan — note the PartitionFilters
 print("\nQuery plan WITH partition filter:")
 spark.sql(
-    f"EXPLAIN EXTENDED SELECT * FROM delta.`{partitioned_path}` WHERE year = 2024 AND month = 6"
+    f"EXPLAIN EXTENDED SELECT * FROM {partitioned_table} WHERE year = 2024 AND month = 6"
 ).show(truncate=False)
 
 ```
@@ -580,22 +603,23 @@ spark.sql(
 ```python
 
 ```
-### Step 3: Apply Z-ORDER and Compare
+
+ ### Step 3: Apply Z-ORDER and Compare
 
 ```python
 
-zorder_path = f"{base_dir}/legacy_zordered"
+zorder_table = f"{DB}.arch_zorder"
 
 # Create a non-partitioned version for Z-ORDER demo
-sales_df.write.format("delta").mode("overwrite").save(zorder_path)
+sales_df.write.format("delta").mode("overwrite").saveAsTable(zorder_table)
 
 # Test query speed before Z-ORDER
 print("Before Z-ORDER:")
-spark.sql(f"DESCRIBE DETAIL delta.`{zorder_path}`").select("numFiles", "sizeInBytes").show()
+spark.sql(f"DESCRIBE DETAIL {zorder_table}").select("numFiles", "sizeInBytes").show()
 
 t0 = time.time()
 result_before = spark.sql(
-    f"SELECT * FROM delta.`{zorder_path}` WHERE customer_id = 'cust_0050'"
+    f"SELECT * FROM {zorder_table} WHERE customer_id = 'cust_0050'"
 ).count()
 t_before_z = time.time() - t0
 print(f"Filter on customer_id (no Z-ORDER): {result_before} matching rows in {t_before_z:.3f}s")
@@ -603,17 +627,17 @@ print(f"Filter on customer_id (no Z-ORDER): {result_before} matching rows in {t_
 # ── Apply Z-ORDER ────────────────────────────────────────────────
 print("\nApplying Z-ORDER BY (customer_id)...")
 t0 = time.time()
-spark.sql(f"OPTIMIZE delta.`{zorder_path}` ZORDER BY (customer_id)")
+spark.sql(f"OPTIMIZE {zorder_table} ZORDER BY (customer_id)")
 t_zorder = time.time() - t0
 print(f"Z-ORDER completed in {t_zorder:.2f}s")
 
 print("\nAfter Z-ORDER:")
-spark.sql(f"DESCRIBE DETAIL delta.`{zorder_path}`").select("numFiles", "sizeInBytes").show()
+spark.sql(f"DESCRIBE DETAIL {zorder_table}").select("numFiles", "sizeInBytes").show()
 
 # Test query speed after Z-ORDER
 t0 = time.time()
 result_after = spark.sql(
-    f"SELECT * FROM delta.`{zorder_path}` WHERE customer_id = 'cust_0050'"
+    f"SELECT * FROM {zorder_table} WHERE customer_id = 'cust_0050'"
 ).count()
 t_after_z = time.time() - t0
 print(f"Filter on customer_id (WITH Z-ORDER): {result_after} matching rows in {t_after_z:.3f}s")
@@ -625,7 +649,8 @@ print(f"\n  Improvement: {t_before_z:.3f}s → {t_after_z:.3f}s")
 ```python
 
 ```
-### Step 4: Migration Strategy — Legacy to Liquid Clustering
+
+ ### Step 4: Migration Strategy — Legacy to Liquid Clustering
 
 ```python
 
@@ -666,32 +691,34 @@ print("""
 ```python
 
 ```
----
-## Concept 94 — Lakehouse Table Design Patterns [Medium]
 
-### What Problem It Solves
+ ---
+ ## Concept 94 — Lakehouse Table Design Patterns [Medium]
 
-Should you store data in a wide denormalized table for fast queries, or in a normalized star schema for flexibility? The lakehouse architecture supports both — and the choice has significant performance, maintainability, and cost implications.
+ ### What Problem It Solves
 
-### Key Patterns
+ Should you store data in a wide denormalized table for fast queries, or in a normalized star schema for flexibility? The lakehouse architecture supports both — and the choice has significant performance, maintainability, and cost implications.
 
-| Pattern | Structure | Best For | Downside |
-|---|---|---|---|
-| **Wide Denormalized** | All columns in one table | BI dashboards, ad-hoc analytics | Redundant data, slower writes, complex updates |
-| **Star Schema** | Fact + dimension tables | ETL pipelines, data warehouse | JOIN required for every query |
-| **One Big Table (OBT)** | Pre-joined, pre-aggregated | Real-time dashboards | Extremely wide, expensive refreshes |
-| **Data Vault** | Hub/Link/Satellite tables | Enterprise data integration, audit trails | Complex to query |
+ ### Key Patterns
 
-### Design Principles for Lakehouse
-1. **Medallion Architecture**: Bronze (raw) → Silver (cleansed) → Gold (business-level)
-2. **Column ordering matters**: First 32 columns get statistics — put filter columns first
-3. **Clustering keys**: Align with most common query filters, not just any column
-4. **Right-size data types**: DECIMAL(10,2) not DOUBLE for currency; INT not BIGINT when possible
+ | Pattern | Structure | Best For | Downside |
+ |---|---|---|---|
+ | **Wide Denormalized** | All columns in one table | BI dashboards, ad-hoc analytics | Redundant data, slower writes, complex updates |
+ | **Star Schema** | Fact + dimension tables | ETL pipelines, data warehouse | JOIN required for every query |
+ | **One Big Table (OBT)** | Pre-joined, pre-aggregated | Real-time dashboards | Extremely wide, expensive refreshes |
+ | **Data Vault** | Hub/Link/Satellite tables | Enterprise data integration, audit trails | Complex to query |
+
+ ### Design Principles for Lakehouse
+ 1. **Medallion Architecture**: Bronze (raw) → Silver (cleansed) → Gold (business-level)
+ 2. **Column ordering matters**: First 32 columns get statistics — put filter columns first
+ 3. **Clustering keys**: Align with most common query filters, not just any column
+ 4. **Right-size data types**: DECIMAL(10,2) not DOUBLE for currency; INT not BIGINT when possible
 
 ```python
 
 ```
-### Step 1: Design a Star Schema (Gold Layer)
+
+ ### Step 1: Design a Star Schema (Gold Layer)
 
 ```python
 
@@ -703,7 +730,6 @@ print("=" * 60)
 fact_sales = spark.sql(f"""
     CREATE OR REPLACE TABLE gold.fact_sales
     USING DELTA
-    LOCATION '{base_dir}/gold/fact_sales'
     AS
     SELECT
         transaction_id,
@@ -715,7 +741,7 @@ fact_sales = spark.sql(f"""
         month,
         CASE WHEN status = 'returned' THEN 1 ELSE 0 END AS is_returned,
         CAST(amount AS DECIMAL(10,2)) AS net_amount
-    FROM delta.`{base_dir}/sales`
+    FROM {DB}.arch_sales
 """)
 print("Fact table created: gold.fact_sales")
 
@@ -723,8 +749,7 @@ print("Fact table created: gold.fact_sales")
 spark.sql(f"""
     CREATE OR REPLACE TABLE gold.dim_customer
     USING DELTA
-    LOCATION '{base_dir}/gold/dim_customer'
-    AS SELECT * FROM delta.`{base_dir}/customers`
+    AS SELECT * FROM {DB}.arch_customers
 """)
 print("Dimension table created: gold.dim_customer")
 
@@ -732,8 +757,7 @@ print("Dimension table created: gold.dim_customer")
 spark.sql(f"""
     CREATE OR REPLACE TABLE gold.dim_product
     USING DELTA
-    LOCATION '{base_dir}/gold/dim_product'
-    AS SELECT * FROM delta.`{base_dir}/products`
+    AS SELECT * FROM {DB}.arch_products
 """)
 print("Dimension table created: gold.dim_product")
 
@@ -742,12 +766,11 @@ date_data = [(2024, m, f"2024-{m:02d}-01") for m in range(1, 13)] + \
             [(2025, m, f"2025-{m:02d}-01") for m in range(1, 13)]
 date_df = spark.createDataFrame(date_data, ["year", "month", "month_start"])
 
-date_df.write.format("delta").mode("overwrite").save(f"{base_dir}/gold/dim_date")
+date_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_dim_date_tmp")
 spark.sql(f"""
     CREATE OR REPLACE TABLE gold.dim_date
     USING DELTA
-    LOCATION '{base_dir}/gold/dim_date'
-    AS SELECT * FROM delta.`{base_dir}/gold/dim_date`
+    AS SELECT * FROM {DB}.arch_dim_date_tmp
 """)
 print("Dimension table created: gold.dim_date")
 
@@ -767,7 +790,8 @@ display(spark.sql("""
 ```python
 
 ```
-### Step 2: Query Pattern — Star Schema JOIN
+
+ ### Step 2: Query Pattern — Star Schema JOIN
 
 ```python
 
@@ -797,17 +821,16 @@ print(f"Star schema query completed in {time.time() - t0:.3f}s")
 ```python
 
 ```
-### Step 3: Alternative — Wide Denormalized Table for Reporting
+
+ ### Step 3: Alternative — Wide Denormalized Table for Reporting
 
 ```python
 
 # ── Pre-join everything into one wide table ───────────────────────
-wide_reporting_path = f"{base_dir}/gold/wide_sales_reporting"
 
-spark.sql(f"""
+spark.sql("""
     CREATE OR REPLACE TABLE gold.wide_sales_reporting
     USING DELTA
-    LOCATION '{wide_reporting_path}'
     AS
     SELECT
         f.transaction_id,
@@ -855,7 +878,8 @@ print(f"Wide table query completed in {time.time() - t0:.3f}s")
 ```python
 
 ```
-### Step 4: Design Tradeoffs Summary
+
+ ### Step 4: Design Tradeoffs Summary
 
 ```python
 
@@ -900,37 +924,39 @@ print("""
 ```python
 
 ```
----
-## Concept 95 — Delta UniForm & Multi-Engine Interoperability [Medium]
 
-### What Problem It Solves
+ ---
+ ## Concept 95 — Delta UniForm & Multi-Engine Interoperability [Medium]
 
-Your organization uses multiple engines — Spark for ETL, Snowflake for BI, BigQuery for ML, Trino for ad-hoc. Each engine wants its own table format (Delta, Iceberg, Hudi). Copying data between formats is expensive, slow, and creates consistency problems.
+ ### What Problem It Solves
 
-**Delta UniForm** solves this: write once as Delta, and the table is automatically readable as Iceberg (and soon Hudi) — with no data copy.
+ Your organization uses multiple engines — Spark for ETL, Snowflake for BI, BigQuery for ML, Trino for ad-hoc. Each engine wants its own table format (Delta, Iceberg, Hudi). Copying data between formats is expensive, slow, and creates consistency problems.
 
-**NOTE:** UniForm requires Delta 3.0+ on full Databricks platform. This section explains the concept, configuration, and decision framework.
+ **Delta UniForm** solves this: write once as Delta, and the table is automatically readable as Iceberg (and soon Hudi) — with no data copy.
 
-### Key Concepts
+ **NOTE:** UniForm requires Delta 3.0+ on full Databricks platform. This section explains the concept, configuration, and decision framework.
 
-| Approach | How It Works | Pros | Cons |
-|---|---|---|---|
-| **UniForm** | Single Delta table auto-generates Iceberg/Hudi metadata | One copy, all engines | Full platform only |
-| **Delta Sharing** | Databricks shares data via open protocol | No copy, governed access | Recipient needs Databricks or open connector |
-| **Federation** | Query external data in-place via Lakehouse Federation | No copy, no ingest | Query performance depends on remote system |
-| **Manual Export** | Periodically copy data to another format | Works everywhere | Duplicate data, stale, expensive |
+ ### Key Concepts
 
-### How UniForm Works (Under the Hood)
+ | Approach | How It Works | Pros | Cons |
+ |---|---|---|---|
+ | **UniForm** | Single Delta table auto-generates Iceberg/Hudi metadata | One copy, all engines | Full platform only |
+ | **Delta Sharing** | Databricks shares data via open protocol | No copy, governed access | Recipient needs Databricks or open connector |
+ | **Federation** | Query external data in-place via Lakehouse Federation | No copy, no ingest | Query performance depends on remote system |
+ | **Manual Export** | Periodically copy data to another format | Works everywhere | Duplicate data, stale, expensive |
 
-1. You enable UniForm on a Delta table: `ENABLE UNIFORM(ICEBERG_COMPAT_VERSION=2)`
-2. On each Delta commit, Databricks automatically generates Iceberg metadata files alongside the Delta log
-3. Iceberg readers (Trino, Snowflake, BigQuery, Athena) see the same data files — they just read a different metadata path
-4. No data duplication — the Parquet files are the same
+ ### How UniForm Works (Under the Hood)
+
+ 1. You enable UniForm on a Delta table: `ENABLE UNIFORM(ICEBERG_COMPAT_VERSION=2)`
+ 2. On each Delta commit, Databricks automatically generates Iceberg metadata files alongside the Delta log
+ 3. Iceberg readers (Trino, Snowflake, BigQuery, Athena) see the same data files — they just read a different metadata path
+ 4. No data duplication — the Parquet files are the same
 
 ```python
 
 ```
-### Step 1: Simulate UniForm Metadata Structure (Conceptual)
+
+ ### Step 1: Simulate UniForm Metadata Structure (Conceptual)
 
 ```python
 
@@ -964,7 +990,8 @@ print("""
 ```python
 
 ```
-### Step 2: Decision Tree — UniForm vs Sharing vs Federation
+
+ ### Step 2: Decision Tree — UniForm vs Sharing vs Federation
 
 ```python
 
@@ -1019,7 +1046,8 @@ print("""
 ```python
 
 ```
-### Step 3: Conceptual UniForm Configuration
+
+ ### Step 3: Conceptual UniForm Configuration
 
 ```python
 
@@ -1057,37 +1085,39 @@ DESCRIBE EXTENDED sales_facts;
 ```python
 
 ```
----
-## Concept 96 — Compute Policies & Cluster Governance [Medium]
 
-### What Problem It Solves
+ ---
+ ## Concept 96 — Compute Policies & Cluster Governance [Medium]
 
-Developers create clusters with 100 nodes and forget to terminate them. Costs spiral. You need guardrails that balance developer productivity with budget discipline — without requiring every cluster to go through an approval process.
+ ### What Problem It Solves
 
-**Compute policies** define what cluster configurations are allowed. They act as templates with fixed values, allowed ranges, and mandatory tags.
+ Developers create clusters with 100 nodes and forget to terminate them. Costs spiral. You need guardrails that balance developer productivity with budget discipline — without requiring every cluster to go through an approval process.
 
-**NOTE:** Policies are managed at the admin level (full platform). This section shows the policy structure and governance concepts applicable in any Databricks environment.
+ **Compute policies** define what cluster configurations are allowed. They act as templates with fixed values, allowed ranges, and mandatory tags.
 
-### Key Concepts
+ **NOTE:** Policies are managed at the admin level (full platform). This section shows the policy structure and governance concepts applicable in any Databricks environment.
 
-| Policy Element | Purpose | Example |
-|---|---|---|
-| **Fixed values** | Lock a setting (cannot be changed) | `autotermination_minutes: 30` |
-| **Allowed ranges** | Limit a setting to a range | `num_workers: {min: 1, max: 10}` |
-| **Default values** | Pre-fill a setting (can be changed) | `spark_version: "13.3.x-scala2.12"` |
-| **Required tags** | Force tagging for cost tracking | `"cost_center": {"type": "fixed", "value": "required"}` |
-| **Hidden fields** | Remove advanced options from UI | Spot instance config |
+ ### Key Concepts
 
-### Policy Types
-- **Personal Compute (default):** Per-user, auto-terminates, limited size
-- **Power User:** More workers, spot instances allowed, longer auto-termination
-- **Job Compute:** Optimized for jobs, no interactive features, aggressive auto-termination
-- **Restricted:** Only specific instance types and versions
+ | Policy Element | Purpose | Example |
+ |---|---|---|
+ | **Fixed values** | Lock a setting (cannot be changed) | `autotermination_minutes: 30` |
+ | **Allowed ranges** | Limit a setting to a range | `num_workers: {min: 1, max: 10}` |
+ | **Default values** | Pre-fill a setting (can be changed) | `spark_version: "13.3.x-scala2.12"` |
+ | **Required tags** | Force tagging for cost tracking | `"cost_center": {"type": "fixed", "value": "required"}` |
+ | **Hidden fields** | Remove advanced options from UI | Spot instance config |
+
+ ### Policy Types
+ - **Personal Compute (default):** Per-user, auto-terminates, limited size
+ - **Power User:** More workers, spot instances allowed, longer auto-termination
+ - **Job Compute:** Optimized for jobs, no interactive features, aggressive auto-termination
+ - **Restricted:** Only specific instance types and versions
 
 ```python
 
 ```
-### Step 1: Sample Compute Policy JSON
+
+ ### Step 1: Sample Compute Policy JSON
 
 ```python
 
@@ -1152,7 +1182,8 @@ print(json.dumps(json.loads(general_policy["definition"]), indent=2))
 ```python
 
 ```
-### Step 2: Cost-Effective Cluster Policy (Job Compute)
+
+ ### Step 2: Cost-Effective Cluster Policy (Job Compute)
 
 ```python
 
@@ -1219,7 +1250,8 @@ print(json.dumps(json.loads(job_policy["definition"]), indent=2))
 ```python
 
 ```
-### Step 3: Governance Framework Summary
+
+ ### Step 3: Governance Framework Summary
 
 ```python
 
@@ -1271,39 +1303,41 @@ print("""
 ```python
 
 ```
----
-## Concept 97 — AI Functions for Data Engineers [Medium]
 
-### What Problem It Solves
+ ---
+ ## Concept 97 — AI Functions for Data Engineers [Medium]
 
-You need to classify thousands of product reviews by sentiment, extract entities from contracts, or summarize support tickets — tasks that traditionally require custom ML models, regex spaghetti, or manual review. AI Functions bring LLM capabilities directly into SQL, making these tasks as simple as calling `ai_classify()`.
+ ### What Problem It Solves
 
-**NOTE:** AI Functions require full Databricks platform with Foundation Model APIs and AI features enabled. Community Edition does not support them. This section demonstrates the concepts, syntax, and decision framework.
+ You need to classify thousands of product reviews by sentiment, extract entities from contracts, or summarize support tickets — tasks that traditionally require custom ML models, regex spaghetti, or manual review. AI Functions bring LLM capabilities directly into SQL, making these tasks as simple as calling `ai_classify()`.
 
-### Key Functions
+ **NOTE:** AI Functions require full Databricks platform with Foundation Model APIs and AI features enabled. Community Edition does not support them. This section demonstrates the concepts, syntax, and decision framework.
 
-| Function | Purpose | Example Use |
-|---|---|---|
-| `ai_query()` | Send a prompt to a model | "Summarize this ticket" |
-| `ai_classify()` | Classify text into categories | Sentiment, priority, department |
-| `ai_extract()` | Extract structured data from text | Entities, dates, amounts |
-| `ai_generate()` | Generate text content | Product descriptions, email drafts |
-| `ai_mask()` | Mask PII in text | Redact names, emails, SSNs |
+ ### Key Functions
 
-### When AI Functions Replace Traditional Logic
+ | Function | Purpose | Example Use |
+ |---|---|---|
+ | `ai_query()` | Send a prompt to a model | "Summarize this ticket" |
+ | `ai_classify()` | Classify text into categories | Sentiment, priority, department |
+ | `ai_extract()` | Extract structured data from text | Entities, dates, amounts |
+ | `ai_generate()` | Generate text content | Product descriptions, email drafts |
+ | `ai_mask()` | Mask PII in text | Redact names, emails, SSNs |
 
-| Task | Traditional Approach | AI Function Approach |
-|---|---|---|
-| **Sentiment analysis** | Custom ML model, training data, deployment | `ai_classify(text, ['positive','negative','neutral'])` |
-| **Entity extraction** | Regex patterns, NER models, multiple passes | `ai_extract(text, ['company', 'date', 'amount'])` |
-| **Ticket routing** | Keyword matching, fragile rules | `ai_classify(ticket, departments)` |
-| **Data cleansing** | Complex UDFs, lookup tables | `ai_generate("Standardize: " + raw_address)` |
-| **Text summarization** | Extractive summarization models | `ai_query("Summarize: " + long_text)` |
+ ### When AI Functions Replace Traditional Logic
+
+ | Task | Traditional Approach | AI Function Approach |
+ |---|---|---|
+ | **Sentiment analysis** | Custom ML model, training data, deployment | `ai_classify(text, ['positive','negative','neutral'])` |
+ | **Entity extraction** | Regex patterns, NER models, multiple passes | `ai_extract(text, ['company', 'date', 'amount'])` |
+ | **Ticket routing** | Keyword matching, fragile rules | `ai_classify(ticket, departments)` |
+ | **Data cleansing** | Complex UDFs, lookup tables | `ai_generate("Standardize: " + raw_address)` |
+ | **Text summarization** | Extractive summarization models | `ai_query("Summarize: " + long_text)` |
 
 ```python
 
 ```
-### Step 1: Traditional Regex Approach vs AI Function (Conceptual)
+
+ ### Step 1: Traditional Regex Approach vs AI Function (Conceptual)
 
 ```python
 
@@ -1336,7 +1370,8 @@ display(tickets_df)
 ```python
 
 ```
-### Step 2: Traditional Approach — Regex + UDF for Classification
+
+ ### Step 2: Traditional Approach — Regex + UDF for Classification
 
 ```python
 
@@ -1377,7 +1412,8 @@ tickets_df \
 ```python
 
 ```
-### Step 3: AI Function Approach (Conceptual — Full Platform Only)
+
+ ### Step 3: AI Function Approach (Conceptual — Full Platform Only)
 
 ```python
 
@@ -1448,7 +1484,8 @@ USE REGEX/UDF when:
 ```python
 
 ```
-### Step 4: Cost Estimation Framework
+
+ ### Step 4: Cost Estimation Framework
 
 ```python
 
@@ -1491,34 +1528,36 @@ print("""
 ```python
 
 ```
----
-## Concept 98 — Multi-Workspace Architecture [Hard]
 
-### What Problem It Solves
+ ---
+ ## Concept 98 — Multi-Workspace Architecture [Hard]
 
-A single Databricks workspace works for small teams, but enterprises face challenges: different teams need isolation, data must stay in specific regions, compliance mandates separation of duties. When do you split into multiple workspaces, and how do you maintain governance across them?
+ ### What Problem It Solves
 
-### Key Drivers for Multi-Workspace
+ A single Databricks workspace works for small teams, but enterprises face challenges: different teams need isolation, data must stay in specific regions, compliance mandates separation of duties. When do you split into multiple workspaces, and how do you maintain governance across them?
 
-| Driver | Example | Impact |
-|---|---|---|
-| **Team isolation** | Data Engineering vs Data Science teams shouldn't impact each other's compute | Separate workspaces per team |
-| **Environment separation** | Dev/Staging/Prod | Separate workspaces per environment |
-| **Regional deployment** | EU data must stay in EU; US data in US | Workspace per region |
-| **Compliance boundary** | PCI-DSS workloads vs general analytics | Separate workspace with strict controls |
-| **Cost allocation** | Each business unit manages its own budget | Workspace per BU with per-workspace budgets |
-| **Blast radius** | Limit impact of misconfiguration or runaway jobs | Smaller workspaces = smaller blast radius |
+ ### Key Drivers for Multi-Workspace
 
-### When One Workspace Suffices
-- Small-to-medium team (< 50 users)
-- Single region, single compliance regime
-- Unity Catalog provides sufficient isolation (schemas/catalogs)
-- No regulatory requirement for physical separation
+ | Driver | Example | Impact |
+ |---|---|---|
+ | **Team isolation** | Data Engineering vs Data Science teams shouldn't impact each other's compute | Separate workspaces per team |
+ | **Environment separation** | Dev/Staging/Prod | Separate workspaces per environment |
+ | **Regional deployment** | EU data must stay in EU; US data in US | Workspace per region |
+ | **Compliance boundary** | PCI-DSS workloads vs general analytics | Separate workspace with strict controls |
+ | **Cost allocation** | Each business unit manages its own budget | Workspace per BU with per-workspace budgets |
+ | **Blast radius** | Limit impact of misconfiguration or runaway jobs | Smaller workspaces = smaller blast radius |
+
+ ### When One Workspace Suffices
+ - Small-to-medium team (< 50 users)
+ - Single region, single compliance regime
+ - Unity Catalog provides sufficient isolation (schemas/catalogs)
+ - No regulatory requirement for physical separation
 
 ```python
 
 ```
-### Step 1: Multi-Workspace Architecture Diagram
+
+ ### Step 1: Multi-Workspace Architecture Diagram
 
 ```python
 
@@ -1586,7 +1625,8 @@ print("""
 ```python
 
 ```
-### Step 2: Splitting Decision Framework
+
+ ### Step 2: Splitting Decision Framework
 
 ```python
 
@@ -1638,27 +1678,29 @@ print("""
 ```python
 
 ```
----
-## Concept 99 — Performance Troubleshooting Methodology [Hard]
 
-### What Problem It Solves
+ ---
+ ## Concept 99 — Performance Troubleshooting Methodology [Hard]
 
-A pipeline that ran in 10 minutes now takes 2 hours. A dashboard query times out. Without a structured diagnostic approach, you waste hours guessing — adding partitions, throwing more hardware at it, or rewriting code blindly.
+ ### What Problem It Solves
 
-This concept provides a **repeatable methodology** for diagnosing and fixing slow Spark/Delta workloads, backed by the tools and techniques from Concepts #1–#98.
+ A pipeline that ran in 10 minutes now takes 2 hours. A dashboard query times out. Without a structured diagnostic approach, you waste hours guessing — adding partitions, throwing more hardware at it, or rewriting code blindly.
 
-### The Diagnostic Checklist
+ This concept provides a **repeatable methodology** for diagnosing and fixing slow Spark/Delta workloads, backed by the tools and techniques from Concepts #1–#98.
 
-1. **Check the Spark UI** — Stage breakdown, task durations, skew
-2. **Identify shuffle/spill bottlenecks** — Spill to disk, exchange sizes
-3. **Examine the query plan** — Full table scans, broadcast vs sort-merge join
-4. **Verify clustering/statistics** — Are files being pruned?
-5. **Check cluster utilization** — CPU idle, GC pressure, disk I/O
+ ### The Diagnostic Checklist
+
+ 1. **Check the Spark UI** — Stage breakdown, task durations, skew
+ 2. **Identify shuffle/spill bottlenecks** — Spill to disk, exchange sizes
+ 3. **Examine the query plan** — Full table scans, broadcast vs sort-merge join
+ 4. **Verify clustering/statistics** — Are files being pruned?
+ 5. **Check cluster utilization** — CPU idle, GC pressure, disk I/O
 
 ```python
 
 ```
-### Step 1: Create a Deliberately Slow Query
+
+ ### Step 1: Create a Deliberately Slow Query
 
 ```python
 
@@ -1676,12 +1718,11 @@ large_sales = spark.range(0, 200000).select(
     col("id").cast("timestamp").alias("transaction_date")
 ).repartition(50)
 
-large_sales_path = f"{base_dir}/perf_diag/large_sales"
-large_sales.write.format("delta").mode("overwrite").save(large_sales_path)
+large_sales.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_large_sales")
 spark.sql(f"""
     CREATE OR REPLACE TABLE perf_sales
     USING DELTA
-    LOCATION '{large_sales_path}'
+    AS SELECT * FROM {DB}.arch_large_sales
 """)
 
 # Create a large dimension table (simulating a poorly designed join)
@@ -1696,12 +1737,11 @@ large_dim = spark.range(0, 50000).select(
     col("id").cast("string").alias("filler_3")
 ).repartition(30)
 
-large_dim_path = f"{base_dir}/perf_diag/large_dim"
-large_dim.write.format("delta").mode("overwrite").save(large_dim_path)
+large_dim.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.arch_large_dim")
 spark.sql(f"""
     CREATE OR REPLACE TABLE perf_customers
     USING DELTA
-    LOCATION '{large_dim_path}'
+    AS SELECT * FROM {DB}.arch_large_dim
 """)
 
 print(f"perf_sales: {spark.table('perf_sales').count():,} rows")
@@ -1712,7 +1752,8 @@ print(f"perf_customers: {spark.table('perf_customers').count():,} rows")
 ```python
 
 ```
-### Step 2: Diagnostic Check #1 — Examine the Query Plan
+
+ ### Step 2: Diagnostic Check #1 — Examine the Query Plan
 
 ```python
 
@@ -1739,7 +1780,8 @@ spark.sql(f"EXPLAIN EXTENDED {slow_query}").show(truncate=False)
 ```python
 
 ```
-### Step 3: Diagnostic Check #2 — Run the Query and Time It
+
+ ### Step 3: Diagnostic Check #2 — Run the Query and Time It
 
 ```python
 
@@ -1759,7 +1801,8 @@ print(f"Result rows: {row_count}")
 ```python
 
 ```
-### Step 4: Diagnostic Check #3 — Check Shuffle and Spill
+
+ ### Step 4: Diagnostic Check #3 — Check Shuffle and Spill
 
 ```python
 
@@ -1793,7 +1836,8 @@ for row in join_plan:
 ```python
 
 ```
-### Step 5: Diagnostic Check #4 — Apply Fixes Step by Step
+
+ ### Step 5: Diagnostic Check #4 — Apply Fixes Step by Step
 
 ```python
 
@@ -1855,7 +1899,8 @@ print(f"  + STATS + Z-ORDER:   {t_opt3:.2f}s")
 ```python
 
 ```
-### Step 6: Reusable Diagnostic Function
+
+ ### Step 6: Reusable Diagnostic Function
 
 ```python
 
@@ -1955,7 +2000,8 @@ for k, v in diagnosis.items():
 ```python
 
 ```
-### Step 7: Troubleshooting Decision Tree
+
+ ### Step 7: Troubleshooting Decision Tree
 
 ```python
 
@@ -2020,42 +2066,44 @@ print("""
 ```python
 
 ```
----
-## Concept 100 — Testing Patterns for Data Pipelines [Hard]
 
-### What Problem It Solves
+ ---
+ ## Concept 100 — Testing Patterns for Data Pipelines [Hard]
 
-"The pipeline succeeded but the data is wrong." Without testing, data quality issues propagate downstream silently. Testing data pipelines is harder than testing application code — data changes over time, schemas evolve, and edge cases (nulls, duplicates, late arrivals) are the norm, not the exception.
+ ### What Problem It Solves
 
-This concept establishes a **comprehensive testing framework** including unit tests for transformations, integration tests for pipelines, data quality assertions, and schema evolution tests.
+ "The pipeline succeeded but the data is wrong." Without testing, data quality issues propagate downstream silently. Testing data pipelines is harder than testing application code — data changes over time, schemas evolve, and edge cases (nulls, duplicates, late arrivals) are the norm, not the exception.
 
-### Testing Pyramid for Data Pipelines
+ This concept establishes a **comprehensive testing framework** including unit tests for transformations, integration tests for pipelines, data quality assertions, and schema evolution tests.
 
-```
-        ╱  E2E Tests ╲           (Full pipeline, real data)
-       ╱──────────────╲
-      ╱ Integration     ╲         (Component interactions, subset data)
-     ╱────────────────────╲
-    ╱   Unit Tests          ╲       (Individual transforms, sample data)
-   ╱──────────────────────────╲
-```
+ ### Testing Pyramid for Data Pipelines
 
-### What We Test
+ ```
+         ╱  E2E Tests ╲           (Full pipeline, real data)
+        ╱──────────────╲
+       ╱ Integration     ╲         (Component interactions, subset data)
+      ╱────────────────────╲
+     ╱   Unit Tests          ╲       (Individual transforms, sample data)
+    ╱──────────────────────────╲
+ ```
 
-| Level | What | Example |
-|---|---|---|
-| **Unit** | Single transformation function | Does `clean_amount()` handle negative values? |
-| **Unit** | Schema validation | Does the output have the expected columns? |
-| **Integration** | Join correctness | Do fact-dimension joins produce correct results? |
-| **Integration** | Aggregation accuracy | Are SUM/COUNT/AVG correct? |
-| **Assertions** | Business rules | No transaction amount > $1M? |
-| **Assertions** | Data quality | No nulls in required fields? |
-| **Edge cases** | Robustness | Empty input, all nulls, schema changes |
+ ### What We Test
+
+ | Level | What | Example |
+ |---|---|---|
+ | **Unit** | Single transformation function | Does `clean_amount()` handle negative values? |
+ | **Unit** | Schema validation | Does the output have the expected columns? |
+ | **Integration** | Join correctness | Do fact-dimension joins produce correct results? |
+ | **Integration** | Aggregation accuracy | Are SUM/COUNT/AVG correct? |
+ | **Assertions** | Business rules | No transaction amount > $1M? |
+ | **Assertions** | Data quality | No nulls in required fields? |
+ | **Edge cases** | Robustness | Empty input, all nulls, schema changes |
 
 ```python
 
 ```
-### Step 1: Create Test Fixtures
+
+ ### Step 1: Create Test Fixtures
 
 ```python
 
@@ -2099,7 +2147,8 @@ print(f"  evolved_sales: {evolved_sales.count()} rows (new columns: channel, dis
 ```python
 
 ```
-### Step 2: Define Transformation Functions to Test
+
+ ### Step 2: Define Transformation Functions to Test
 
 ```python
 
@@ -2164,7 +2213,8 @@ print("  revenue_by_segment(s, c)    → Segment-level revenue")
 ```python
 
 ```
-### Step 3: UNIT TESTS — Transformations
+
+ ### Step 3: UNIT TESTS — Transformations
 
 ```python
 
@@ -2252,7 +2302,8 @@ print(f"\n  Unit Tests: {passed}/{total} passed")
 ```python
 
 ```
-### Step 4: INTEGRATION TESTS — Aggregation & Join Correctness
+
+ ### Step 4: INTEGRATION TESTS — Aggregation & Join Correctness
 
 ```python
 
@@ -2344,7 +2395,8 @@ print(f"\n  Integration Tests: {passed_int}/{total_int} passed")
 ```python
 
 ```
-### Step 5: SCHEMA EVOLUTION TESTS
+
+ ### Step 5: SCHEMA EVOLUTION TESTS
 
 ```python
 
@@ -2424,7 +2476,8 @@ print(f"\n  Schema Evolution Tests: {passed_evol}/{total_evol} passed")
 ```python
 
 ```
-### Step 6: Comprehensive Test Runner
+
+ ### Step 6: Comprehensive Test Runner
 
 ```python
 
@@ -2533,7 +2586,8 @@ full_runner.run()
 ```python
 
 ```
-### Step 7: CI/CD Integration Pattern (Conceptual)
+
+ ### Step 7: CI/CD Integration Pattern (Conceptual)
 
 ```python
 
@@ -2585,44 +2639,46 @@ print("""
 ```python
 
 ```
----
----
-# GRAND FINALE
 
-## Congratulations! You've Completed All 100 Concepts
+ ---
+ ---
+ # GRAND FINALE
 
-If you've worked through all 10 notebooks in this series, you've covered the full spectrum of Databricks and Delta Lake engineering — from the fundamentals of the transaction log to multi-workspace enterprise architecture.
+ ## Congratulations! You've Completed All 100 Concepts
 
-### What You've Built
+ If you've worked through all 10 notebooks in this series, you've covered the full spectrum of Databricks and Delta Lake engineering — from the fundamentals of the transaction log to multi-workspace enterprise architecture.
 
-Through these notebooks, you've created and worked with:
+ ### What You've Built
 
-- **Delta Lake tables** with ACID transactions, time travel, schema evolution, and deletion vectors
-- **Streaming pipelines** with Auto Loader, Structured Streaming, and Change Data Feed
-- **Performance-optimized** workloads with Z-ORDER, Liquid Clustering, Photon, and Predictive Optimization
-- **Secure and governed** data with Unity Catalog, row filters, column masks, and data lineage
-- **Orchestrated workflows** with Delta Live Tables, Databricks Workflows, and DABs
-- **ML-integrated pipelines** with Feature Store, Model Registry, and MLflow
-- **Production-grade testing** frameworks with unit, integration, and data quality assertions
-- **Enterprise architecture** patterns for multi-team, multi-region deployments
+ Through these notebooks, you've created and worked with:
 
-### Skills You Can Now Claim
+ - **Delta Lake tables** with ACID transactions, time travel, schema evolution, and deletion vectors
+ - **Streaming pipelines** with Auto Loader, Structured Streaming, and Change Data Feed
+ - **Performance-optimized** workloads with Z-ORDER, Liquid Clustering, Photon, and Predictive Optimization
+ - **Secure and governed** data with Unity Catalog, row filters, column masks, and data lineage
+ - **Orchestrated workflows** with Delta Live Tables, Databricks Workflows, and DABs
+ - **ML-integrated pipelines** with Feature Store, Model Registry, and MLflow
+ - **Production-grade testing** frameworks with unit, integration, and data quality assertions
+ - **Enterprise architecture** patterns for multi-team, multi-region deployments
 
-- Delta Lake Architecture & Optimization
-- Apache Spark Performance Tuning
-- Data Pipeline Testing & CI/CD
-- Lakehouse Table Design (Star Schema, OBT, Data Vault)
-- Enterprise Security & Governance
-- Multi-Engine Interoperability
-- Cost Optimization & Cluster Governance
-- Production Operations & Troubleshooting
+ ### Skills You Can Now Claim
+
+ - Delta Lake Architecture & Optimization
+ - Apache Spark Performance Tuning
+ - Data Pipeline Testing & CI/CD
+ - Lakehouse Table Design (Star Schema, OBT, Data Vault)
+ - Enterprise Security & Governance
+ - Multi-Engine Interoperability
+ - Cost Optimization & Cluster Governance
+ - Production Operations & Troubleshooting
 
 ```python
 
 ```
-## 100-Concept Self-Assessment Scorecard
 
-Rate your confidence on each concept (1–5) to identify areas for further study.
+ ## 100-Concept Self-Assessment Scorecard
+
+ Rate your confidence on each concept (1–5) to identify areas for further study.
 
 ```python
 
@@ -2711,54 +2767,55 @@ print("""
 ```python
 
 ```
----
-## Next Steps: Where to Go From Here
 
-### Certifications
+ ---
+ ## Next Steps: Where to Go From Here
 
-| Certification | Level | Focus | Recommended After |
-|---|---|---|---|
-| **Databricks Data Engineer Associate** | Entry | Delta, Spark, ETL basics | Completing notebooks 1–3 |
-| **Databricks Data Engineer Professional** | Advanced | DLT, streaming, optimization, DABs | All 10 notebooks |
-| **Databricks ML Engineer Associate** | Entry | MLflow, Feature Store, model serving | Notebooks 1–3 + 9 |
-| **Databricks SQL Analyst** | Entry | SQL warehouses, dashboards, BI | Notebooks 1–3 |
-| **Databricks Platform Administrator** | Advanced | Workspaces, policies, Unity Catalog | Notebooks 6–8, 10 |
+ ### Certifications
 
-### Hands-On Projects
+ | Certification | Level | Focus | Recommended After |
+ |---|---|---|---|
+ | **Databricks Data Engineer Associate** | Entry | Delta, Spark, ETL basics | Completing notebooks 1–3 |
+ | **Databricks Data Engineer Professional** | Advanced | DLT, streaming, optimization, DABs | All 10 notebooks |
+ | **Databricks ML Engineer Associate** | Entry | MLflow, Feature Store, model serving | Notebooks 1–3 + 9 |
+ | **Databricks SQL Analyst** | Entry | SQL warehouses, dashboards, BI | Notebooks 1–3 |
+ | **Databricks Platform Administrator** | Advanced | Workspaces, policies, Unity Catalog | Notebooks 6–8, 10 |
 
-| Project | Concepts Applied | Difficulty |
-|---|---|---|
-| **Build a Medallion Pipeline** | #1-#10, #31-#40 | Intermediate |
-| **Real-Time Fraud Detection** | #41-#50, #81-#90 | Advanced |
-| **Enterprise Data Platform** | #61-#70, #91-#100 | Expert |
-| **Cost Optimization Audit** | #51-#60, #96 | Intermediate |
-| **Multi-Engine Lakehouse** | #92, #95, #98 | Expert |
+ ### Hands-On Projects
 
-### Community & Resources
+ | Project | Concepts Applied | Difficulty |
+ |---|---|---|
+ | **Build a Medallion Pipeline** | #1-#10, #31-#40 | Intermediate |
+ | **Real-Time Fraud Detection** | #41-#50, #81-#90 | Advanced |
+ | **Enterprise Data Platform** | #61-#70, #91-#100 | Expert |
+ | **Cost Optimization Audit** | #51-#60, #96 | Intermediate |
+ | **Multi-Engine Lakehouse** | #92, #95, #98 | Expert |
 
-| Resource | URL | Purpose |
-|---|---|---|
-| **Databricks Documentation** | docs.databricks.com | Official reference |
-| **Delta Lake OSS** | delta.io | Open-source Delta |
-| **Apache Spark Docs** | spark.apache.org/docs | Spark internals |
-| **Databricks Community** | community.databricks.com | Q&A, discussions |
-| **Databricks Blog** | databricks.com/blog | Best practices, releases |
-| **Databricks Academy** | partner-academy.databricks.com | Free courses |
-| **Delta Lake GitHub** | github.com/delta-io/delta | Source code, examples |
+ ### Community & Resources
 
-### Learning Path Continuation
+ | Resource | URL | Purpose |
+ |---|---|---|
+ | **Databricks Documentation** | docs.databricks.com | Official reference |
+ | **Delta Lake OSS** | delta.io | Open-source Delta |
+ | **Apache Spark Docs** | spark.apache.org/docs | Spark internals |
+ | **Databricks Community** | community.databricks.com | Q&A, discussions |
+ | **Databricks Blog** | databricks.com/blog | Best practices, releases |
+ | **Databricks Academy** | partner-academy.databricks.com | Free courses |
+ | **Delta Lake GitHub** | github.com/delta-io/delta | Source code, examples |
 
-```
-100-Concept Series (You Are Here)
-      │
-      ├─▶ Databricks Associate Certification
-      │
-      ├─▶ Databricks Professional Certification
-      │
-      ├─▶ Real-World Project Portfolio (3-5 projects)
-      │
-      └─▶ Community Contribution (blog posts, talks, open source)
-```
+ ### Learning Path Continuation
+
+ ```
+ 100-Concept Series (You Are Here)
+       │
+       ├─▶ Databricks Associate Certification
+       │
+       ├─▶ Databricks Professional Certification
+       │
+       ├─▶ Real-World Project Portfolio (3-5 projects)
+       │
+       └─▶ Community Contribution (blog posts, talks, open source)
+ ```
 
 ```python
 
@@ -2777,7 +2834,15 @@ for t in tables_to_drop:
         spark.sql(f"DROP TABLE IF EXISTS {t}")
     except:
         pass
-dbutils.fs.rm(base_dir, recurse=True)
+arch_tables = ["arch_sales", "arch_customers", "arch_products",
+               "arch_clone_source", "arch_sales_external",
+               "arch_partitioned", "arch_zorder",
+               "arch_dim_date_tmp", "arch_large_sales", "arch_large_dim"]
+for t in arch_tables:
+    try:
+        spark.sql(f"DROP TABLE IF EXISTS {DB}.{t}")
+    except:
+        pass
 print("Cleanup complete.")
 
 ```

@@ -64,9 +64,11 @@ spark = SparkSession.builder \
 
 spark.sql("SET spark.databricks.delta.schema.autoMerge.enabled = true")
 
-BASE_PATH = "/tmp/lakeflow_demo"
-os.makedirs(BASE_PATH, exist_ok=True)
-print(f"Working directory: {BASE_PATH}")
+DB = "default"
+for t in spark.catalog.listTables(DB):
+    if t.name.startswith("lakeflow_"):
+        spark.sql(f"DROP TABLE IF EXISTS {DB}.{t.name}")
+print(f"Database: {DB}")
 print(f"Spark version: {spark.version}")
 
 # COMMAND ----------
@@ -94,8 +96,8 @@ products_data = [(
 ) for pid in PRODUCT_IDS]
 
 products_df = spark.createDataFrame(products_data, schema=["product_id", "name", "category", "price", "active"])
-products_df.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/products")
-print(f"[OK] Products: {products_df.count()} rows → {BASE_PATH}/products")
+products_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_products")
+print(f"[OK] Products: {products_df.count()} rows → {DB}.lakeflow_products")
 
 # --- Customers Dimension ---
 customers_data = [(
@@ -107,8 +109,8 @@ customers_data = [(
 ) for cid in CUSTOMER_IDS]
 
 customers_df = spark.createDataFrame(customers_data, schema=["customer_id", "email", "tier", "region", "signup_date"])
-customers_df.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/customers")
-print(f"[OK] Customers: {customers_df.count()} rows → {BASE_PATH}/customers")
+customers_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_customers")
+print(f"[OK] Customers: {customers_df.count()} rows → {DB}.lakeflow_customers")
 
 # --- Raw Orders (append-friendly source) ---
 def generate_orders(num_rows=200):
@@ -143,13 +145,13 @@ batch1 = generate_orders(100)
 batch2 = generate_orders(100)
 
 orders_df = spark.createDataFrame(batch1 + batch2, schema=order_schema)
-orders_df.write.format("delta").mode("append").save(f"{BASE_PATH}/raw_orders")
-print(f"[OK] Raw Orders: {orders_df.count()} rows → {BASE_PATH}/raw_orders")
+orders_df.write.format("delta").mode("append").saveAsTable(f"{DB}.lakeflow_raw_orders")
+print(f"[OK] Raw Orders: {orders_df.count()} rows → {DB}.lakeflow_raw_orders")
 
 # --- Refresh all tables ---
-spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW products  AS SELECT * FROM delta.`{BASE_PATH}/products`")
-spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW customers AS SELECT * FROM delta.`{BASE_PATH}/customers`")
-spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW raw_orders AS SELECT * FROM delta.`{BASE_PATH}/raw_orders`")
+spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW products  AS SELECT * FROM {DB}.lakeflow_products")
+spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW customers AS SELECT * FROM {DB}.lakeflow_customers")
+spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW raw_orders AS SELECT * FROM {DB}.lakeflow_raw_orders")
 print("\nAll datasets ready.")
 
 # COMMAND ----------
@@ -218,8 +220,7 @@ print("\nAll datasets ready.")
 
 bronze_orders = (
     spark.readStream
-         .format("delta")
-         .load(f"{BASE_PATH}/raw_orders")
+         .table(f"{DB}.lakeflow_raw_orders")
          .withColumn("ingested_at", F.current_timestamp())
 )
 
@@ -227,28 +228,28 @@ bronze_query = (
     bronze_orders.writeStream
     .format("delta")
     .outputMode("append")
-    .option("checkpointLocation", f"{BASE_PATH}/_checkpoint/bronze")
+    .option("checkpointLocation", "/lakeflow_demo/_checkpoint/bronze")
     .trigger(processingTime="10 seconds")
-    .start(f"{BASE_PATH}/bronze_orders")
+    .toTable(f"{DB}.lakeflow_bronze_orders")
 )
 print("Bronze streaming write started...")
 
 time.sleep(8)
 
-silver_orders = spark.read.format("delta").load(f"{BASE_PATH}/bronze_orders") \
+silver_orders = spark.read.table(f"{DB}.lakeflow_bronze_orders") \
     .withColumn("processed_at", F.current_timestamp())
 
-silver_orders.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/silver_orders")
+silver_orders.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_silver_orders")
 print(f"Silver orders created: {silver_orders.count()} rows")
 
 gold_daily_sales = (
-    spark.read.format("delta").load(f"{BASE_PATH}/silver_orders")
+    spark.read.table(f"{DB}.lakeflow_silver_orders")
     .withColumn("order_date", F.to_date(F.col("order_ts")))
     .groupBy("order_date", "region")
     .agg(F.sum("amount").alias("total_sales"), F.count("*").alias("order_count"))
 )
 
-gold_daily_sales.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/gold_daily_sales")
+gold_daily_sales.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_gold_daily_sales")
 print(f"Gold daily sales created: {gold_daily_sales.count()} rows")
 
 # Stop streaming to keep things clean
@@ -306,7 +307,7 @@ print("Bronze stream stopped.")
 #      MANUAL EQUIVALENT — COMMUNITY EDITION (SQL-centric)
 # =============================================================================
 
-spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW orders_source AS SELECT * FROM delta.`{BASE_PATH}/raw_orders`")
+spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW orders_source AS SELECT * FROM {DB}.lakeflow_raw_orders")
 
 spark.sql(f"""
     CREATE OR REPLACE TEMPORARY VIEW bronze_orders_sql AS
@@ -398,13 +399,11 @@ spark.sql("SELECT * FROM gold_daily_sales_sql ORDER BY order_date DESC").show(5)
 #      MANUAL STREAMING TABLE — Append-only ingestion to Delta
 # =============================================================================
 
-checkpoint_stream = f"{BASE_PATH}/_checkpoint/manual_streaming_table"
+checkpoint_stream = "/lakeflow_demo/_checkpoint/manual_streaming_table"
 
 streaming_input = (
     spark.readStream
-    .format("delta")
-    .option("maxFilesPerTrigger", 2)
-    .load(f"{BASE_PATH}/raw_orders")
+    .table(f"{DB}.lakeflow_raw_orders")
     .withColumn("streamed_at", F.current_timestamp())
 )
 
@@ -415,7 +414,7 @@ stream_writer = (
     .option("checkpointLocation", checkpoint_stream)
     .trigger(processingTime="5 seconds")
     .queryName("manual_streaming_table")
-    .start(f"{BASE_PATH}/manual_streaming_table")
+    .toTable(f"{DB}.lakeflow_manual_streaming_table")
 )
 
 print("Manual streaming table started — append-only, exactly-once via Delta log")
@@ -424,7 +423,7 @@ stream_writer.stop()
 print("Streaming table stopped.")
 
 # Show what was ingested
-spark.read.format("delta").load(f"{BASE_PATH}/manual_streaming_table") \
+spark.read.table(f"{DB}.lakeflow_manual_streaming_table") \
     .select("order_id", "amount", "streamed_at") \
     .orderBy(F.desc("streamed_at")).show(5, False)
 
@@ -441,7 +440,7 @@ spark.read.format("delta").load(f"{BASE_PATH}/manual_streaming_table") \
 
 def refresh_materialized_view():
     """Simulates Lakeflow's materialized view refresh — full recompute."""
-    source = spark.read.format("delta").load(f"{BASE_PATH}/raw_orders") \
+    source = spark.read.table(f"{DB}.lakeflow_raw_orders") \
         .withColumn("order_date", F.to_date("order_ts"))
 
     mv_customer_metrics = (
@@ -456,7 +455,7 @@ def refresh_materialized_view():
     )
 
     mv_customer_metrics.write.format("delta").mode("overwrite") \
-        .save(f"{BASE_PATH}/mv_customer_metrics")
+        .saveAsTable(f"{DB}.lakeflow_mv_customer_metrics")
     return mv_customer_metrics
 
 mv1 = refresh_materialized_view()
@@ -465,7 +464,7 @@ mv1.show(5, False)
 
 # Add more data, then re-refresh (simulating Lakeflow's incremental pipeline run)
 more_orders = spark.createDataFrame(generate_orders(30), schema=order_schema)
-more_orders.write.format("delta").mode("append").save(f"{BASE_PATH}/raw_orders")
+more_orders.write.format("delta").mode("append").saveAsTable(f"{DB}.lakeflow_raw_orders")
 
 mv2 = refresh_materialized_view()
 print(f"\nAfter new data — re-refreshed: {mv2.count()} rows")
@@ -644,7 +643,7 @@ class ExpectationFramework:
 
 
 # --- DEMO: Apply expectations ---
-raw_df = spark.read.format("delta").load(f"{BASE_PATH}/raw_orders")
+raw_df = spark.read.table(f"{DB}.lakeflow_raw_orders")
 print(f"Raw data: {raw_df.count()} rows\n")
 
 ef = ExpectationFramework(name="silver_quality_demo")
@@ -658,8 +657,8 @@ clean_df = ef.expect_range(clean_df, "discount_pct", 0, 100, action="warn")
 clean_df = ef.expect(clean_df, "amount_not_outlier",
                      (F.col("amount") > 0) & (F.col("amount") < 1500), action="warn")
 
-clean_df.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/silver_orders_quality")
-print(f"\nCleaned data: {clean_df.count()} rows → {BASE_PATH}/silver_orders_quality")
+clean_df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_silver_orders_quality")
+print(f"\nCleaned data: {clean_df.count()} rows → {DB}.lakeflow_silver_orders_quality")
 
 ef.report()
 
@@ -694,10 +693,10 @@ quality_schema = T.StructType([
 ])
 
 quality_df = spark.createDataFrame(quality_records, schema=quality_schema)
-quality_df.write.format("delta").mode("append").save(f"{BASE_PATH}/pipeline_quality_log")
+quality_df.write.format("delta").mode("append").saveAsTable(f"{DB}.lakeflow_pipeline_quality_log")
 
 print("Quality monitoring table:")
-spark.read.format("delta").load(f"{BASE_PATH}/pipeline_quality_log").show(truncate=False)
+spark.read.table(f"{DB}.lakeflow_pipeline_quality_log").show(truncate=False)
 
 # COMMAND ----------
 
@@ -896,10 +895,10 @@ import uuid
 class PipelineRunTracker:
     """Mimics Lakeflow event log for manual pipeline monitoring."""
 
-    def __init__(self, pipeline_name, storage_location=BASE_PATH):
+    def __init__(self, pipeline_name, table_name=f"{DB}.lakeflow_pipeline_runs_log"):
         self.pipeline_name = pipeline_name
         self.run_id = str(uuid.uuid4())[:8]
-        self.log_path = f"{storage_location}/_monitoring/pipeline_runs"
+        self.table_name = table_name
         self.events = []
         self.start_time = None
         self.end_time = None
@@ -962,7 +961,7 @@ class PipelineRunTracker:
 
     def _persist(self):
         df = spark.createDataFrame(self.events)
-        df.write.format("delta").mode("append").save(self.log_path)
+        df.write.format("delta").mode("append").saveAsTable(self.table_name)
 
 
 # --- DEMO: Track a pipeline run ---
@@ -970,7 +969,7 @@ tracker = PipelineRunTracker("daily_retail_etl")
 tracker.start()
 
 # Simulate multi-step pipeline
-raw_count = spark.read.format("delta").load(f"{BASE_PATH}/raw_orders").count()
+raw_count = spark.read.table(f"{DB}.lakeflow_raw_orders").count()
 tracker.log_step("read_raw", None, raw_count, 120)
 
 t0 = time.time()
@@ -1003,10 +1002,8 @@ tracker.finish(success=True)
 # =============================================================================
 #      QUERY PIPELINE RUN HISTORY
 # =============================================================================
-monitoring_path = f"{BASE_PATH}/_monitoring/pipeline_runs"
-
 try:
-    run_history = spark.read.format("delta").load(monitoring_path)
+    run_history = spark.read.table(f"{DB}.lakeflow_pipeline_runs_log")
 
     print("=== Recent Pipeline Runs ===")
     run_history.filter(F.col("event_type").isin("pipeline_start", "pipeline_finish")) \
@@ -1078,13 +1075,11 @@ except Exception as e:
 #      MANUAL — TRIGGERED PIPELINE (availableNow)
 #      Processes all available data, then stops.
 # =============================================================================
-checkpoint_triggered = f"{BASE_PATH}/_checkpoint/triggered_demo"
+checkpoint_triggered = "/lakeflow_demo/_checkpoint/triggered_demo"
 
 triggered_stream = (
     spark.readStream
-    .format("delta")
-    .option("maxFilesPerTrigger", 5)
-    .load(f"{BASE_PATH}/raw_orders")
+    .table(f"{DB}.lakeflow_raw_orders")
     .withColumn("trigger_type", F.lit("TRIGGERED"))
     .withColumn("processed_at", F.current_timestamp())
 )
@@ -1094,14 +1089,14 @@ triggered_query = (
     .format("delta")
     .outputMode("append")
     .option("checkpointLocation", checkpoint_triggered)
-    .trigger(availableNow=True)           # ← "triggered" mode
+    .trigger(availableNow=True)
     .queryName("triggered_pipeline")
-    .start(f"{BASE_PATH}/silver_triggered")
+    .toTable(f"{DB}.lakeflow_silver_triggered")
 )
 
 triggered_query.awaitTermination()
 print(f"Triggered pipeline finished. Status: {triggered_query.status['message']}")
-spark.read.format("delta").load(f"{BASE_PATH}/silver_triggered").show(5)
+spark.read.table(f"{DB}.lakeflow_silver_triggered").show(5)
 
 # COMMAND ----------
 
@@ -1114,13 +1109,11 @@ spark.read.format("delta").load(f"{BASE_PATH}/silver_triggered").show(5)
 #      MANUAL — CONTINUOUS PIPELINE (processingTime)
 #      Always running — processes micro-batches every N seconds.
 # =============================================================================
-checkpoint_continuous = f"{BASE_PATH}/_checkpoint/continuous_demo"
+checkpoint_continuous = "/lakeflow_demo/_checkpoint/continuous_demo"
 
 continuous_stream = (
     spark.readStream
-    .format("delta")
-    .option("maxFilesPerTrigger", 1)
-    .load(f"{BASE_PATH}/raw_orders")
+    .table(f"{DB}.lakeflow_raw_orders")
     .withColumn("trigger_type", F.lit("CONTINUOUS"))
     .withColumn("processed_at", F.current_timestamp())
 )
@@ -1130,9 +1123,9 @@ continuous_query = (
     .format("delta")
     .outputMode("append")
     .option("checkpointLocation", checkpoint_continuous)
-    .trigger(processingTime="5 seconds")   # ← "continuous" mode
+    .trigger(processingTime="5 seconds")
     .queryName("continuous_pipeline")
-    .start(f"{BASE_PATH}/silver_continuous")
+    .toTable(f"{DB}.lakeflow_silver_continuous")
 )
 
 print("Continuous pipeline running — will stop after 12 seconds for demo...")
@@ -1140,7 +1133,7 @@ time.sleep(12)
 continuous_query.stop()
 print("Continuous query stopped.")
 
-spark.read.format("delta").load(f"{BASE_PATH}/silver_continuous") \
+spark.read.table(f"{DB}.lakeflow_silver_continuous") \
     .select("order_id", "trigger_type", "processed_at").show(5, False)
 
 # COMMAND ----------
@@ -1212,7 +1205,7 @@ cdc_events = spark.createDataFrame([
     ("UPDATE", "C00001", "alice.new@example.com","Enterprise","US-West",   "2024-01-10", 9),   # Alice changed again
 ], schema=["op", "customer_id", "email", "tier", "region", "signup_date", "sequence"])
 
-cdc_events.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/cdc_feed")
+cdc_events.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_cdc_feed")
 print("CDC events:")
 cdc_events.orderBy("sequence").show(truncate=False)
 
@@ -1273,7 +1266,7 @@ def apply_cdc_scd2(source_df, target_path, keys, sequence_col, op_col="op",
 
     from delta.tables import DeltaTable
 
-    target_full_path = f"{BASE_PATH}/{target_path}"
+    target_table = f"{DB}.lakeflow_{target_path}"
 
     # 1. Get the latest version of each key (deduplication by sequence)
     latest_changes = (
@@ -1290,16 +1283,16 @@ def apply_cdc_scd2(source_df, target_path, keys, sequence_col, op_col="op",
     inserts = latest_changes.filter(F.col(op_col) == insert_op)
     updates = latest_changes.filter(F.col(op_col) == update_op)
 
-    if not DeltaTable.isDeltaTable(spark, target_full_path):
+    if not DeltaTable.isDeltaTable(spark, target_table):
         # First run: initialize target table
         inserts \
             .withColumn("__START_AT", F.current_timestamp()) \
             .withColumn("__END_AT", F.lit(None).cast("timestamp")) \
-            .write.format("delta").mode("overwrite").save(target_full_path)
-        print(f"[INIT] Created SCD2 table: {target_full_path} with {inserts.count()} rows")
-        return DeltaTable.forPath(spark, target_full_path)
+            .write.format("delta").mode("overwrite").saveAsTable(target_table)
+        print(f"[INIT] Created SCD2 table: {target_table} with {inserts.count()} rows")
+        return DeltaTable.forName(spark, target_table)
 
-    target = DeltaTable.forPath(spark, target_full_path)
+    target = DeltaTable.forName(spark, target_table)
     now = F.current_timestamp()
 
     # 2. Handle DELETES: close current records
@@ -1334,7 +1327,7 @@ def apply_cdc_scd2(source_df, target_path, keys, sequence_col, op_col="op",
             .withColumn("__START_AT", F.current_timestamp())
             .withColumn("__END_AT", F.lit(None).cast("timestamp"))
         )
-        new_versions.write.format("delta").mode("append").save(target_full_path)
+        new_versions.write.format("delta").mode("append").saveAsTable(target_table)
         print(f"[CDC] Closed + inserted {updates.count()} updated record(s)")
 
     # 4. Handle INSERTS
@@ -1342,14 +1335,14 @@ def apply_cdc_scd2(source_df, target_path, keys, sequence_col, op_col="op",
         inserts \
             .withColumn("__START_AT", F.current_timestamp()) \
             .withColumn("__END_AT", F.lit(None).cast("timestamp")) \
-            .write.format("delta").mode("append").save(target_full_path)
+            .write.format("delta").mode("append").saveAsTable(target_table)
         print(f"[CDC] Inserted {inserts.count()} new record(s)")
 
-    return DeltaTable.forPath(spark, target_full_path)
+    return DeltaTable.forName(spark, target_table)
 
 
 # --- DEMO: Apply CDC to customer dimension ---
-cdc_source = spark.read.format("delta").load(f"{BASE_PATH}/cdc_feed")
+cdc_source = spark.read.table(f"{DB}.lakeflow_cdc_feed")
 
 target = apply_cdc_scd2(
     source_df=cdc_source,
@@ -1387,7 +1380,7 @@ print(f"✅ Charlie deleted — __END_AT is set (0 current records)")
 # =============================================================================
 def apply_cdc_scd1(source_df, target_path, keys, sequence_col):
     from delta.tables import DeltaTable
-    target_full_path = f"{BASE_PATH}/{target_path}"
+    target_table = f"{DB}.lakeflow_{target_path}"
 
     latest = (
         source_df
@@ -1398,13 +1391,13 @@ def apply_cdc_scd1(source_df, target_path, keys, sequence_col):
         .drop("_rn")
     )
 
-    if not DeltaTable.isDeltaTable(spark, target_full_path):
-        latest.write.format("delta").mode("overwrite").save(target_full_path)
-        print(f"[INIT] Created SCD1 table: {target_full_path}")
+    if not DeltaTable.isDeltaTable(spark, target_table):
+        latest.write.format("delta").mode("overwrite").saveAsTable(target_table)
+        print(f"[INIT] Created SCD1 table: {target_table}")
         return
 
     join_cond = " AND ".join([f"target.{k} = source.{k}" for k in keys])
-    DeltaTable.forPath(spark, target_full_path).alias("target").merge(
+    DeltaTable.forName(spark, target_table).alias("target").merge(
         latest.alias("source"), join_cond
     ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
     print(f"[CDB] SCD1 upserted {latest.count()} rows")
@@ -1418,7 +1411,7 @@ apply_cdc_scd1(
 )
 
 print("\nSCD1 Table (overwritten — no history):")
-spark.read.format("delta").load(f"{BASE_PATH}/customers_scd1") \
+spark.read.table(f"{DB}.lakeflow_customers_scd1") \
     .orderBy("customer_id").show(truncate=False)
 
 # COMMAND ----------
@@ -1493,7 +1486,7 @@ def build_dead_letter_pipeline(source_df, rules, valid_output_path, dlq_output_p
         .withColumn("pipeline_status", F.lit("VALID")) \
         .withColumn("processed_at", F.current_timestamp())
 
-    valid_df.write.format("delta").mode("overwrite").save(valid_output_path)
+    valid_df.write.format("delta").mode("overwrite").saveAsTable(valid_output_path)
     print(f"[MAIN] Valid records: {valid_df.count()} → {valid_output_path}")
 
     # --- DLQ output: invalid records with error details ---
@@ -1526,7 +1519,7 @@ def build_dead_letter_pipeline(source_df, rules, valid_output_path, dlq_output_p
             ]]
         )
 
-        dlq_output.write.format("delta").mode("overwrite").save(dlq_output_path)
+        dlq_output.write.format("delta").mode("overwrite").saveAsTable(dlq_output_path)
         print(f"[DLQ]  Dead letter records: {dlq_output.count()} → {dlq_output_path}")
     else:
         print("[DLQ]  No dead letter records — all data valid")
@@ -1565,8 +1558,8 @@ dirty_source.show(truncate=False)
 result = build_dead_letter_pipeline(
     source_df=dirty_source,
     rules=quality_rules,
-    valid_output_path=f"{BASE_PATH}/silver_valid",
-    dlq_output_path=f"{BASE_PATH}/silver_dead_letter",
+    valid_output_path=f"{DB}.lakeflow_silver_valid",
+    dlq_output_path=f"{DB}.lakeflow_silver_dead_letter",
 )
 
 # COMMAND ----------
@@ -1577,16 +1570,16 @@ result = build_dead_letter_pipeline(
 # COMMAND ----------
 
 print("=== MAIN TABLE (valid records) ===")
-spark.read.format("delta").load(f"{BASE_PATH}/silver_valid") \
+spark.read.table(f"{DB}.lakeflow_silver_valid") \
     .select("order_id", "amount", "status", "pipeline_status").show(truncate=False)
 
 print("\n=== DEAD LETTER QUEUE (errors) ===")
-spark.read.format("delta").load(f"{BASE_PATH}/silver_dead_letter") \
+spark.read.table(f"{DB}.lakeflow_silver_dead_letter") \
     .select("order_id", "amount", "status", "error_messages", "error_timestamp") \
     .show(truncate=False)
 
 # --- Error Categorization & Retry Simulation ---
-dlq_df = spark.read.format("delta").load(f"{BASE_PATH}/silver_dead_letter")
+dlq_df = spark.read.table(f"{DB}.lakeflow_silver_dead_letter")
 print("\n=== Error Breakdown ===")
 dlq_df.groupBy("error_messages").count().orderBy(F.desc("count")).show(truncate=False)
 
@@ -1665,8 +1658,8 @@ class PipelineConfig:
 
     ENVIRONMENTS = {
         "dev": {
-            "source_path": f"{BASE_PATH}/raw_orders",
-            "target_path": f"{BASE_PATH}/curated_dev",
+            "source_path": f"{DB}.lakeflow_raw_orders",
+            "target_path": f"{DB}.lakeflow_curated_dev",
             "quality_mode": "warn",        # dev: don't break on bad data
             "batch_size": 100,
             "trigger_interval": "30 seconds",
@@ -1674,8 +1667,8 @@ class PipelineConfig:
             "log_level": "DEBUG",
         },
         "staging": {
-            "source_path": f"{BASE_PATH}/raw_orders",
-            "target_path": f"{BASE_PATH}/curated_staging",
+            "source_path": f"{DB}.lakeflow_raw_orders",
+            "target_path": f"{DB}.lakeflow_curated_staging",
             "quality_mode": "drop",        # staging: drop bad rows, don't fail
             "batch_size": 1000,
             "trigger_interval": "5 minutes",
@@ -1683,8 +1676,8 @@ class PipelineConfig:
             "log_level": "INFO",
         },
         "prod": {
-            "source_path": f"{BASE_PATH}/raw_orders",
-            "target_path": f"{BASE_PATH}/curated_prod",
+            "source_path": f"{DB}.lakeflow_raw_orders",
+            "target_path": f"{DB}.lakeflow_curated_prod",
             "quality_mode": "fail",        # prod: fail on critical violations
             "batch_size": 5000,
             "trigger_interval": "1 minute",
@@ -1728,7 +1721,7 @@ class ParameterizedPipeline:
 
     def extract(self):
         print(f"[EXTRACT] Reading from {self.source_path} (batch_size={self.batch_size})")
-        source_df = spark.read.format("delta").load(self.source_path) \
+        source_df = spark.read.table(self.source_path) \
             .withColumn("_pipeline_env", F.lit(self.config.env)) \
             .withColumn("_processed_at", F.current_timestamp())
         return source_df.limit(self.batch_size)
@@ -1754,7 +1747,7 @@ class ParameterizedPipeline:
 
     def load(self, df):
         output_path = f"{self.target_path}"
-        df.write.format("delta").mode("overwrite").save(output_path)
+        df.write.format("delta").mode("overwrite").saveAsTable(output_path)
         print(f"[LOAD] Wrote {df.count()} rows to {output_path}")
         return df.count()
 
@@ -1987,29 +1980,29 @@ class MultiPipelineOrchestrator:
 
 # Pipeline 1: Ingestion
 def ingest_raw_orders():
-    df = spark.read.format("delta").load(f"{BASE_PATH}/raw_orders") \
+    df = spark.read.table(f"{DB}.lakeflow_raw_orders") \
         .withColumn("ingested_at", F.current_timestamp())
-    df.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_bronze")
+    df.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_bronze")
     return df.count()
 
 def validate_bronze():
-    df = spark.read.format("delta").load(f"{BASE_PATH}/pipeline_bronze")
+    df = spark.read.table(f"{DB}.lakeflow_pipeline_bronze")
     valid = df.filter(F.col("order_id").isNotNull()) \
               .filter(F.col("amount") > 0) \
               .filter(F.col("status").isin("pending", "shipped", "delivered", "cancelled"))
-    valid.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_bronze_validated")
+    valid.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_bronze_validated")
     invalid = df.filter(~F.col("order_id").isNotNull() |
                          (F.col("amount") <= 0) |
                          ~F.col("status").isin("pending", "shipped", "delivered", "cancelled"))
-    invalid.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_bronze_dlq")
+    invalid.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_bronze_dlq")
     print(f"     Valid: {valid.count()}, Invalid (DLQ): {invalid.count()}")
     return valid.count()
 
 # Pipeline 2: Transformation (depends on ingestion)
 def enrich_silver():
-    orders = spark.read.format("delta").load(f"{BASE_PATH}/pipeline_bronze_validated")
-    products = spark.read.format("delta").load(f"{BASE_PATH}/products")
-    customers = spark.read.format("delta").load(f"{BASE_PATH}/customers")
+    orders = spark.read.table(f"{DB}.lakeflow_pipeline_bronze_validated")
+    products = spark.read.table(f"{DB}.lakeflow_products")
+    customers = spark.read.table(f"{DB}.lakeflow_customers")
 
     enriched = orders \
         .join(products.select("product_id", F.col("price").alias("unit_price"), F.col("category")),
@@ -2021,12 +2014,12 @@ def enrich_silver():
                     F.round(F.col("line_total") * F.col("discount_pct") / 100.0, 2)) \
         .withColumn("net_revenue", F.col("line_total") - F.col("discount_amount"))
 
-    enriched.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_silver")
+    enriched.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_silver")
     return enriched.count()
 
 # Pipeline 3: Aggregation (depends on transformation)
 def aggregate_gold():
-    silver = spark.read.format("delta").load(f"{BASE_PATH}/pipeline_silver")
+    silver = spark.read.table(f"{DB}.lakeflow_pipeline_silver")
 
     daily_metrics = silver \
         .withColumn("order_date", F.to_date("order_ts")) \
@@ -2040,7 +2033,7 @@ def aggregate_gold():
         .withColumn("processed_at", F.current_timestamp())
 
     daily_metrics.write.format("delta").mode("overwrite") \
-        .save(f"{BASE_PATH}/pipeline_gold_daily_metrics")
+        .saveAsTable(f"{DB}.lakeflow_pipeline_gold_daily_metrics")
 
     # Customer-tier KPIs
     tier_metrics = silver \
@@ -2052,13 +2045,13 @@ def aggregate_gold():
         )
 
     tier_metrics.write.format("delta").mode("overwrite") \
-        .save(f"{BASE_PATH}/pipeline_gold_tier_metrics")
+        .saveAsTable(f"{DB}.lakeflow_pipeline_gold_tier_metrics")
 
     return daily_metrics.count()
 
 # Pipeline 4: Data Product / Feature Store (depends on transformation)
 def build_features():
-    silver = spark.read.format("delta").load(f"{BASE_PATH}/pipeline_silver")
+    silver = spark.read.table(f"{DB}.lakeflow_pipeline_silver")
 
     features = silver \
         .groupBy("customer_id") \
@@ -2075,7 +2068,7 @@ def build_features():
                       .when(F.datediff(F.current_date(), F.col("last_order_date")) > 60, "MEDIUM")
                       .otherwise("LOW"))
 
-    features.write.format("delta").mode("overwrite").save(f"{BASE_PATH}/pipeline_customer_features")
+    features.write.format("delta").mode("overwrite").saveAsTable(f"{DB}.lakeflow_pipeline_customer_features")
     return features.count()
 
 
@@ -2104,16 +2097,16 @@ for entry in execution_log:
     print(f"  {status_icon} {entry['step']}: {entry['rows']} rows, {entry['duration_sec']:.1f}s")
 
 print("\n=== GOLD: Daily KPIs (sample) ===")
-spark.read.format("delta").load(f"{BASE_PATH}/pipeline_gold_daily_metrics") \
+spark.read.table(f"{DB}.lakeflow_pipeline_gold_daily_metrics") \
     .orderBy(F.desc("order_date"), F.desc("total_revenue")) \
     .show(10, truncate=False)
 
 print("\n=== GOLD: Tier Metrics ===")
-spark.read.format("delta").load(f"{BASE_PATH}/pipeline_gold_tier_metrics") \
+spark.read.table(f"{DB}.lakeflow_pipeline_gold_tier_metrics") \
     .show(truncate=False)
 
 print("\n=== CUSTOMER FEATURES: Top 10 by Lifetime Value ===")
-spark.read.format("delta").load(f"{BASE_PATH}/pipeline_customer_features") \
+spark.read.table(f"{DB}.lakeflow_pipeline_customer_features") \
     .orderBy(F.desc("lifetime_value")) \
     .select("customer_id", "lifetime_orders", "lifetime_value", "churn_risk") \
     .show(10, truncate=False)

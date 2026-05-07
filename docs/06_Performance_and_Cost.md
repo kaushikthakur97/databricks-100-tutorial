@@ -1,86 +1,85 @@
-%md
-# 06 — Performance & Cost Optimization
+ # 06 — Performance & Cost Optimization
 
-**Concepts Covered:** #51–#60  
-**Environment:** Databricks Community Edition (single-node, free)  
-**Goal:** Master performance tuning and cost optimization techniques on Databricks.
+ **Concepts Covered:** #51–#60  
+ **Environment:** Databricks Community Edition (single-node, free)  
+ **Goal:** Master performance tuning and cost optimization techniques on Databricks.
 
-| # | Concept | Difficulty | Type |
-|---|---------|------------|------|
-| 51 | Serverless Compute Economics | Easy | Conceptual |
-| 52 | Predicate Pushdown & Data Skipping | Medium | Hands-on |
-| 53 | Predictive Optimization | Medium | Conceptual + Hands-on |
-| 54 | Column Statistics & File Pruning | Medium | Hands-on |
-| 55 | Write Optimization | Medium | Hands-on |
-| 56 | Cluster Sizing & Autoscaling | Medium | Conceptual |
-| 57 | DBU Cost Model & Billing | Medium | Conceptual + Hands-on |
-| 58 | Query Profile & Execution Plans | Medium | Hands-on |
-| 59 | Join Performance Diagnosis | Hard | Hands-on |
-| 60 | MERGE Write Amplification | Hard | Hands-on |
-
-```python
-
-```
-%md
-## Concept 51 — Serverless Compute Economics
-
-**NOTE:** Serverless compute is **not available** in Databricks Community Edition. This section is conceptual.
-
-### What is Serverless Compute?
-
-Serverless compute removes the need to manage clusters directly. You submit workloads, and Databricks provisions compute resources automatically in your account. You pay only for the resources consumed by your workload.
-
-### DBU-Based Pricing Model
-
-Databricks pricing is based on **DBUs** (Databricks Units) — a normalized unit of processing capability per hour.
-
-| Compute Type | DBU/hr (approx.) | Billing Granularity | Best For |
-|---|---|---|---|
-| **Serverless SQL** | 0.70–1.10 | Per-second, 1-min minimum | BI dashboards, ad-hoc SQL |
-| **Serverless Jobs** | 0.55–0.75 | Per-second, 1-min minimum | Notebook/scheduled jobs |
-| **Classic SQL Warehouse** | 0.40–0.55 | Per-second, 10-min minimum | Steady-state SQL workloads |
-| **Classic All-Purpose** | 0.40–0.55 | Per-second, 10-min minimum | Development, exploration |
-| **Classic Jobs** | 0.30–0.40 | Per-second, 10-min minimum | Scheduled production pipelines |
-
-*Exact pricing varies by tier (Standard/Premium/Enterprise) and cloud provider.*
+ | # | Concept | Difficulty | Type |
+ |---|---------|------------|------|
+ | 51 | Serverless Compute Economics | Easy | Conceptual |
+ | 52 | Predicate Pushdown & Data Skipping | Medium | Hands-on |
+ | 53 | Predictive Optimization | Medium | Conceptual + Hands-on |
+ | 54 | Column Statistics & File Pruning | Medium | Hands-on |
+ | 55 | Write Optimization | Medium | Hands-on |
+ | 56 | Cluster Sizing & Autoscaling | Medium | Conceptual |
+ | 57 | DBU Cost Model & Billing | Medium | Conceptual + Hands-on |
+ | 58 | Query Profile & Execution Plans | Medium | Hands-on |
+ | 59 | Join Performance Diagnosis | Hard | Hands-on |
+ | 60 | MERGE Write Amplification | Hard | Hands-on |
 
 ```python
 
 ```
-%md
-### Serverless vs Classic: When Each Wins
 
-**Serverless is cheaper when:**
-- Workloads are **bursty** (intermittent, unpredictable)
-- Many short-running queries or jobs
-- You want zero cluster management overhead
-- Start-up latency is important (serverless starts faster)
-- Idle time between jobs is significant
+ ## Concept 51 — Serverless Compute Economics
 
-**Classic is cheaper when:**
-- Workloads are **sustained** (24/7 processing)
-- Jobs run continuously with little idle time
-- You can right-size clusters precisely
-- Using spot instances for deep discounts (30–50% off)
-- Predictable, long-running ETL pipelines
+ **NOTE:** Serverless compute is **not available** in Databricks Community Edition. This section is conceptual.
 
-### Elimination of Idle Cluster Waste
+ ### What is Serverless Compute?
 
-With classic clusters:
-- Clusters are always on (costing DBU/hr) even when idle
-- Autoscaling helps but cannot go to zero
-- Manual start/stop introduces latency
+ Serverless compute removes the need to manage clusters directly. You submit workloads, and Databricks provisions compute resources automatically in your account. You pay only for the resources consumed by your workload.
 
-With serverless:
-- *No idle cost* — you pay only for active processing
-- Compute scales down to zero between queries
-- No cluster management overhead
+ ### DBU-Based Pricing Model
+
+ Databricks pricing is based on **DBUs** (Databricks Units) — a normalized unit of processing capability per hour.
+
+ | Compute Type | DBU/hr (approx.) | Billing Granularity | Best For |
+ |---|---|---|---|
+ | **Serverless SQL** | 0.70–1.10 | Per-second, 1-min minimum | BI dashboards, ad-hoc SQL |
+ | **Serverless Jobs** | 0.55–0.75 | Per-second, 1-min minimum | Notebook/scheduled jobs |
+ | **Classic SQL Warehouse** | 0.40–0.55 | Per-second, 10-min minimum | Steady-state SQL workloads |
+ | **Classic All-Purpose** | 0.40–0.55 | Per-second, 10-min minimum | Development, exploration |
+ | **Classic Jobs** | 0.30–0.40 | Per-second, 10-min minimum | Scheduled production pipelines |
+
+ *Exact pricing varies by tier (Standard/Premium/Enterprise) and cloud provider.*
 
 ```python
 
 ```
-%md
-### Conceptual Pricing Comparison
+
+ ### Serverless vs Classic: When Each Wins
+
+ **Serverless is cheaper when:**
+ - Workloads are **bursty** (intermittent, unpredictable)
+ - Many short-running queries or jobs
+ - You want zero cluster management overhead
+ - Start-up latency is important (serverless starts faster)
+ - Idle time between jobs is significant
+
+ **Classic is cheaper when:**
+ - Workloads are **sustained** (24/7 processing)
+ - Jobs run continuously with little idle time
+ - You can right-size clusters precisely
+ - Using spot instances for deep discounts (30–50% off)
+ - Predictable, long-running ETL pipelines
+
+ ### Elimination of Idle Cluster Waste
+
+ With classic clusters:
+ - Clusters are always on (costing DBU/hr) even when idle
+ - Autoscaling helps but cannot go to zero
+ - Manual start/stop introduces latency
+
+ With serverless:
+ - *No idle cost* — you pay only for active processing
+ - Compute scales down to zero between queries
+ - No cluster management overhead
+
+```python
+
+```
+
+ ### Conceptual Pricing Comparison
 
 ```python
 
@@ -103,51 +102,52 @@ print("(Illustrative — verify at https://databricks.com/product/pricing)\n")
 display(pricing_df)
 
 ```
-```python
-
-```
-%md
-### Key Takeaways — Serverless
-
-| Factor | Serverless | Classic |
-|---|---|---|
-| Start-up time | 5–15 seconds | 3–7 minutes |
-| Billing minimum | 1 minute | 10 minutes |
-| Idle cost | $0 | DBU/hr × idle time |
-| Spot instances | Not available | Available (30–50% less) |
-| Cluster management | None | Required |
-| Max scale | Elastic | Defined by config |
-| Photon support | Yes | Yes |
-
 
 ```python
 
 ```
-%md
-## Concept 52 — Predicate Pushdown & Data Skipping
 
-**Available in Community Edition — full hands-on.**
+ ### Key Takeaways — Serverless
 
-### Theory
+ | Factor | Serverless | Classic |
+ |---|---|---|
+ | Start-up time | 5–15 seconds | 3–7 minutes |
+ | Billing minimum | 1 minute | 10 minutes |
+ | Idle cost | $0 | DBU/hr × idle time |
+ | Spot instances | Not available | Available (30–50% less) |
+ | Cluster management | None | Required |
+ | Max scale | Elastic | Defined by config |
+ | Photon support | Yes | Yes |
 
-**Predicate pushdown** means filters are pushed down to the storage layer, so only relevant data is read from disk.  
-**Data skipping** uses Delta Lake per-file statistics (min/max values) to skip entire files that can't match the filter.
-
-**What enables skipping:**
-- Partition filters (direct path elimination)
-- `ZORDER` clustering on filter columns
-- Delta stats (min/max per file for first 32 columns)
-
-**What BREAKS pushdown:**
-- Applying functions to filter columns (`YEAR(date_col) = 2023` instead of `date_col BETWEEN`)
-- Casting (`CAST(col AS STRING) = 'value'`)
-- Complex expressions that can't be evaluated at the file level
 
 ```python
 
 ```
-%md
-### Create Test Table with Many Files
+
+ ## Concept 52 — Predicate Pushdown & Data Skipping
+
+ **Available in Community Edition — full hands-on.**
+
+ ### Theory
+
+ **Predicate pushdown** means filters are pushed down to the storage layer, so only relevant data is read from disk.  
+ **Data skipping** uses Delta Lake per-file statistics (min/max values) to skip entire files that can't match the filter.
+
+ **What enables skipping:**
+ - Partition filters (direct path elimination)
+ - `ZORDER` clustering on filter columns
+ - Delta stats (min/max per file for first 32 columns)
+
+ **What BREAKS pushdown:**
+ - Applying functions to filter columns (`YEAR(date_col) = 2023` instead of `date_col BETWEEN`)
+ - Casting (`CAST(col AS STRING) = 'value'`)
+ - Complex expressions that can't be evaluated at the file level
+
+```python
+
+```
+
+ ### Create Test Table with Many Files
 
 ```python
 
@@ -219,35 +219,37 @@ print(f"Generated {NUM_ROWS:,} rows in {time.time()-t0:.1f}s")
 df.printSchema()
 
 ```
+
 ```python
 
 # Write with many files (partition by region to see partitioning effects)
-table_path = "/tmp/delta/perf_demo/transactions"
-print(f"Writing {NUM_FILES} files to {table_path}...")
+table_name = "default.perf_transactions"
+spark.sql("DROP TABLE IF EXISTS default.perf_transactions")
+print(f"Writing {NUM_FILES} files to {table_name}...")
 t0 = time.time()
 
 df.repartition(NUM_FILES).write \
     .mode("overwrite") \
     .option("maxRecordsPerFile", 100000) \
     .partitionBy("region") \
-    .save(table_path)
+    .saveAsTable(table_name)
 
 print(f"Write completed in {time.time()-t0:.1f}s")
 
-# Verify files
-files = dbutils.fs.ls(table_path)
-print(f"\nTotal files in Delta table: {len([f for f in files if f.name.endswith('.parquet')])} (not counting _delta_log)")
+detail = spark.sql("DESCRIBE DETAIL default.perf_transactions")
+print(f"\nTotal files in Delta table: {detail.select('numFiles').collect()[0][0]} (data files)")
 
 ```
+
 ```python
 
 ```
-%md
-### Demonstrate Predicate Pushdown with EXPLAIN
+
+ ### Demonstrate Predicate Pushdown with EXPLAIN
 
 ```python
 
-transactions = spark.read.format("delta").load(table_path)
+transactions = spark.read.table(table_name)
 
 print("=" * 80)
 print("QUERY 1: Filter on partition column (region = 'North')")
@@ -255,6 +257,7 @@ print("=" * 80)
 transactions.filter(col("region") == "North").explain(extended=True)
 
 ```
+
 ```python
 
 print("=" * 80)
@@ -263,6 +266,7 @@ print("=" * 80)
 transactions.filter(col("amount") > 400).explain(extended=True)
 
 ```
+
 ```python
 
 print("=" * 80)
@@ -271,6 +275,7 @@ print("=" * 80)
 transactions.filter(year(col("transaction_date")) == 2023).explain(extended=True)
 
 ```
+
 ```python
 
 print("=" * 80)
@@ -282,11 +287,12 @@ transactions.filter(
 ).explain(extended=True)
 
 ```
+
 ```python
 
 ```
-%md
-### Timing Comparison: Good vs Bad Predicates
+
+ ### Timing Comparison: Good vs Bad Predicates
 
 ```python
 
@@ -328,93 +334,95 @@ print(f"{'YEAR(date)=2023 (breaks pushdown) + amount>400':<55} {t2:>7.2f}s {resu
 print(f"{'Partition + date range + count':<55} {t3:>7.2f}s {result3:>10,}")
 
 ```
+
 ```python
 
 ```
-%md
-### Show Delta Statistics with File Skipping
+
+ ### Show Delta Statistics with File Skipping
 
 ```python
 
 # Check the statistics Delta maintains
 print("DESCRIBE DETAIL:")
-display(spark.sql(f"DESCRIBE DETAIL delta.`{table_path}`"))
+display(spark.sql("DESCRIBE DETAIL default.perf_transactions"))
 
 ```
+
 ```python
 
 print("DESCRIBE HISTORY:")
-display(spark.sql(f"DESCRIBE HISTORY delta.`{table_path}`"))
+display(spark.sql("DESCRIBE HISTORY default.perf_transactions"))
 
 ```
+
 ```python
 
-# Inspect Delta log for statistics
-delta_log_path = f"{table_path}/_delta_log"
-log_files = dbutils.fs.ls(delta_log_path)
-print(f"Delta log files at {delta_log_path}:")
-for f in log_files[:10]:
-    print(f"  {f.name} ({f.size} bytes)")
+# Inspect Delta table history for statistics
+history_df = spark.sql("DESCRIBE HISTORY default.perf_transactions")
+log_entries = history_df.select("version", "timestamp", "operation").orderBy("version").collect()
+print("Delta table history entries:")
+for e in log_entries[:10]:
+    print(f"  version {e['version']}: {e['operation']} at {e['timestamp']}")
 
-# Read the last checkpoint file if it exists
-checkpoint_path = f"{table_path}/_delta_log/_last_checkpoint"
-try:
-    checkpoint_info = spark.read.text(checkpoint_path).collect()
-    print(f"\nLast checkpoint: {checkpoint_info}")
-except:
-    print("\nNo _last_checkpoint file (expected after first write)")
+# Check table properties
+detail_df = spark.sql("DESCRIBE DETAIL default.perf_transactions")
+props = detail_df.select("properties").collect()[0][0]
+print(f"\nTable properties: {props}")
 
 ```
-```python
-
-```
-%md
-### Key Takeaways — Predicate Pushdown
-
-| Pattern | Effect | Example |
-|---|---|---|
-| Partition column filter | Entire partitions skipped | `WHERE region = 'North'` |
-| Direct column comparison | File-level min/max stats used | `WHERE amount > 400` |
-| Function on column | Stats cannot be used | `WHERE YEAR(date) = 2023` |
-| Cast on column | Stats cannot be used | `WHERE CAST(id AS STRING) = '5'` |
-| Range on column | Stats used effectively | `WHERE date BETWEEN 'A' AND 'B'` |
-| `IN` clause | Converted to range checks | `WHERE region IN ('N','S')` |
-
 
 ```python
 
 ```
-%md
-## Concept 53 — Predictive Optimization
 
-**NOTE:** Predictive Optimization is a **full-platform feature** (not available in Community Edition). The concept is explained here, and manual equivalents are demonstrated for CE.
+ ### Key Takeaways — Predicate Pushdown
 
-### What Is Predictive Optimization?
+ | Pattern | Effect | Example |
+ |---|---|---|
+ | Partition column filter | Entire partitions skipped | `WHERE region = 'North'` |
+ | Direct column comparison | File-level min/max stats used | `WHERE amount > 400` |
+ | Function on column | Stats cannot be used | `WHERE YEAR(date) = 2023` |
+ | Cast on column | Stats cannot be used | `WHERE CAST(id AS STRING) = '5'` |
+ | Range on column | Stats used effectively | `WHERE date BETWEEN 'A' AND 'B'` |
+ | `IN` clause | Converted to range checks | `WHERE region IN ('N','S')` |
 
-Predictive Optimization is a **managed service** that automatically runs maintenance operations on tables:
-
-| Operation | What It Does | Trigger |
-|---|---|---|
-| **OPTIMIZE** | Compacts small files, ZORDERs data | After 5+ writes to the table |
-| **VACUUM** | Removes old file versions | Retained for 7 days (default) |
-| **ANALYZE** | Refreshes column statistics | After significant data change |
-
-**Key characteristics:**
-- Enabled by default on Unity Catalog managed tables (full platform)
-- Monitored via `system.information_schema.predictive_optimizations_history`
-- No user configuration required
-- Zero performance impact on user queries
-- No additional cost (included)
 
 ```python
 
 ```
-%md
-### Manual Maintenance (Community Edition Equivalent)
+
+ ## Concept 53 — Predictive Optimization
+
+ **NOTE:** Predictive Optimization is a **full-platform feature** (not available in Community Edition). The concept is explained here, and manual equivalents are demonstrated for CE.
+
+ ### What Is Predictive Optimization?
+
+ Predictive Optimization is a **managed service** that automatically runs maintenance operations on tables:
+
+ | Operation | What It Does | Trigger |
+ |---|---|---|
+ | **OPTIMIZE** | Compacts small files, ZORDERs data | After 5+ writes to the table |
+ | **VACUUM** | Removes old file versions | Retained for 7 days (default) |
+ | **ANALYZE** | Refreshes column statistics | After significant data change |
+
+ **Key characteristics:**
+ - Enabled by default on Unity Catalog managed tables (full platform)
+ - Monitored via `system.information_schema.predictive_optimizations_history`
+ - No user configuration required
+ - Zero performance impact on user queries
+ - No additional cost (included)
 
 ```python
 
-manual_maintenance_path = "/tmp/delta/perf_demo/manual_maintenance"
+```
+
+ ### Manual Maintenance (Community Edition Equivalent)
+
+```python
+
+manual_maintenance_table = "default.perf_maintenance"
+spark.sql("DROP TABLE IF EXISTS default.perf_maintenance")
 
 # Create a fresh table with small files
 print("Creating table with many small files...")
@@ -429,79 +437,79 @@ df_maintenance = spark.range(0, 500000).select(
 df_maintenance.repartition(100).write \
     .mode("overwrite") \
     .format("delta") \
-    .save(manual_maintenance_path)
+    .saveAsTable(manual_maintenance_table)
 
 # Count files before OPTIMIZE
-files_before = len([f for f in dbutils.fs.ls(manual_maintenance_path) if f.name.endswith('.parquet')])
+detail_before = spark.sql("DESCRIBE DETAIL default.perf_maintenance")
+files_before = detail_before.select("numFiles").collect()[0][0]
 print(f"Files before OPTIMIZE: {files_before}")
-
-# Read table, check file count via DESCRIBE DETAIL
-detail_before = spark.sql(f"DESCRIBE DETAIL delta.`{manual_maintenance_path}`")
 detail_before.select("numFiles", "sizeInBytes").show()
 
 ```
+
 ```python
 
 # Run OPTIMIZE (manual equivalent of Predictive Optimization)
 print("Running manual OPTIMIZE...")
 t0 = time.time()
 
-spark.sql(f"OPTIMIZE delta.`{manual_maintenance_path}`")
+spark.sql("OPTIMIZE default.perf_maintenance")
 
 t_optimize = time.time() - t0
 print(f"OPTIMIZE completed in {t_optimize:.1f}s")
 
 # Check file count after
-detail_after = spark.sql(f"DESCRIBE DETAIL delta.`{manual_maintenance_path}`")
+detail_after = spark.sql("DESCRIBE DETAIL default.perf_maintenance")
 detail_after.select("numFiles", "sizeInBytes").show()
 
 files_after = detail_after.select("numFiles").collect()[0][0]
 print(f"\nFiles reduced: {files_before} → {files_after} ({100*(1-files_after/files_before):.0f}% reduction)")
 
 ```
-```python
-
-```
-%md
-### When Manual Maintenance Is Still Needed (Even With Predictive Optimization)
-
-Predictive Optimization helps but doesn't eliminate the need for manual intervention:
-
-| Scenario | Why Manual |
-|---|---|
-| **Precise ZORDER** | Predictive Optimization chooses columns automatically; you may want specific ZORDER columns |
-| **Custom VACUUM retention** | Default is 7 days; you may want longer for recovery |
-| **Immediate maintenance** | Predictive Optimization runs on a schedule; you may need immediate compaction after a large write |
-| **Tables with deletion vectors** | Manual REORG TABLE may be needed |
-| **Non-managed tables** | Predictive Optimization only works on managed tables in Unity Catalog |
-
-```python
-# Manual OPTIMIZE with custom ZORDER
-spark.sql("OPTIMIZE my_table ZORDER BY (date_col, category)")
-
-# Manual VACUUM with custom retention
-spark.sql("VACUUM my_table RETAIN 168 HOURS")
-
-# Manual ANALYZE
-spark.sql("ANALYZE TABLE my_table COMPUTE STATISTICS FOR ALL COLUMNS")
-```
 
 ```python
 
 ```
-%md
-## Concept 54 — Column Statistics & File Pruning
 
-**Available in Community Edition — hands-on.**
+ ### When Manual Maintenance Is Still Needed (Even With Predictive Optimization)
 
-### How Delta Collects Statistics
+ Predictive Optimization helps but doesn't eliminate the need for manual intervention:
 
-Delta Lake automatically collects **per-file min/max statistics** for the **first 32 columns** of each Parquet file. These statistics are stored in the Delta transaction log and enable:
+ | Scenario | Why Manual |
+ |---|---|
+ | **Precise ZORDER** | Predictive Optimization chooses columns automatically; you may want specific ZORDER columns |
+ | **Custom VACUUM retention** | Default is 7 days; you may want longer for recovery |
+ | **Immediate maintenance** | Predictive Optimization runs on a schedule; you may need immediate compaction after a large write |
+ | **Tables with deletion vectors** | Manual REORG TABLE may be needed |
+ | **Non-managed tables** | Predictive Optimization only works on managed tables in Unity Catalog |
 
-- **File-level pruning**: If `WHERE amount > 500` and a file's max amount is 300, the entire file is skipped.
-- **No data read needed** to determine if a file matches — just check the metadata.
+ ```python
+ # Manual OPTIMIZE with custom ZORDER
+ spark.sql("OPTIMIZE my_table ZORDER BY (date_col, category)")
 
-**Column order matters**: Statistics are only kept for the first 32 columns in the schema. Columns beyond 32 don't have stats available for file skipping.
+ # Manual VACUUM with custom retention
+ spark.sql("VACUUM my_table RETAIN 168 HOURS")
+
+ # Manual ANALYZE
+ spark.sql("ANALYZE TABLE my_table COMPUTE STATISTICS FOR ALL COLUMNS")
+ ```
+
+```python
+
+```
+
+ ## Concept 54 — Column Statistics & File Pruning
+
+ **Available in Community Edition — hands-on.**
+
+ ### How Delta Collects Statistics
+
+ Delta Lake automatically collects **per-file min/max statistics** for the **first 32 columns** of each Parquet file. These statistics are stored in the Delta transaction log and enable:
+
+ - **File-level pruning**: If `WHERE amount > 500` and a file's max amount is 300, the entire file is skipped.
+ - **No data read needed** to determine if a file matches — just check the metadata.
+
+ **Column order matters**: Statistics are only kept for the first 32 columns in the schema. Columns beyond 32 don't have stats available for file skipping.
 
 ```python
 
@@ -514,46 +522,49 @@ for i in range(1, 40):
 
 df_wide = spark.range(0, 200000).select(*wide_cols)
 
-wide_table_path = "/tmp/delta/perf_demo/wide_table"
+wide_table_name = "default.perf_wide_table"
+spark.sql("DROP TABLE IF EXISTS default.perf_wide_table")
 df_wide.repartition(10).write \
     .mode("overwrite") \
     .format("delta") \
-    .save(wide_table_path)
+    .saveAsTable(wide_table_name)
 
 print("Wide table created.")
-spark.read.format("delta").load(wide_table_path).printSchema()
+spark.read.table(wide_table_name).printSchema()
 
 ```
+
 ```python
 
 ```
-%md
-### ANALYZE TABLE to Refresh Statistics
+
+ ### ANALYZE TABLE to Refresh Statistics
 
 ```python
 
 # ANALYZE the wide table
 print("Running ANALYZE TABLE to collect statistics...")
 t0 = time.time()
-spark.sql(f"ANALYZE TABLE delta.`{wide_table_path}` COMPUTE STATISTICS FOR ALL COLUMNS")
+spark.sql("ANALYZE TABLE default.perf_wide_table COMPUTE STATISTICS FOR ALL COLUMNS")
 print(f"ANALYZE completed in {time.time()-t0:.1f}s")
 
 # Show statistics
 print("\nColumn Statistics (DESCRIBE EXTENDED):")
-spark.sql(f"DESCRIBE EXTENDED delta.`{wide_table_path}`").show(50, truncate=False)
+spark.sql("DESCRIBE EXTENDED default.perf_wide_table").show(50, truncate=False)
 
 ```
+
 ```python
 
 ```
-%md
-### Demonstrate File Skipping with Column Statistics
 
-Filter on a column with statistics (col_01, within first 32) vs without (col_35, beyond 32).
+ ### Demonstrate File Skipping with Column Statistics
+
+ Filter on a column with statistics (col_01, within first 32) vs without (col_35, beyond 32).
 
 ```python
 
-wide_df = spark.read.format("delta").load(wide_table_path)
+wide_df = spark.read.table(wide_table_name)
 
 print("=" * 80)
 print("FILTER ON col_01 (within first 32 — HAS STATISTICS)")
@@ -566,6 +577,7 @@ print("=" * 80)
 wide_df.filter(col("col_35") == 50).explain(extended=True)
 
 ```
+
 ```python
 
 # Timing comparison: filter on column with stats vs without
@@ -586,30 +598,32 @@ print(f"Filter on col_35 (no stats):      {t_without:.3f}s — returned {result_
 print(f"Speedup from stats:               {t_without/t_with:.1f}x faster with statistics")
 
 ```
+
 ```python
 
 ```
-%md
-### DESCRIBE DETAIL — Check Table Statistics
+
+ ### DESCRIBE DETAIL — Check Table Statistics
 
 ```python
 
 # Show table details including statistics configuration
 print("TABLE DETAILS:")
 
-detail = spark.sql(f"DESCRIBE DETAIL delta.`{wide_table_path}`")
+detail = spark.sql("DESCRIBE DETAIL default.perf_wide_table")
 detail.select("name", "numFiles", "sizeInBytes", "properties").show(truncate=False)
 
 print("\nTABLE HISTORY (last 5 operations):")
-history = spark.sql(f"DESCRIBE HISTORY delta.`{wide_table_path}`")
+history = spark.sql("DESCRIBE HISTORY default.perf_wide_table")
 history.select("version", "timestamp", "operation", "operationMetrics").show(5, truncate=False)
 
 ```
+
 ```python
 
 ```
-%md
-### Statistics Property Configuration
+
+ ### Statistics Property Configuration
 
 ```python
 
@@ -633,41 +647,40 @@ ALTER TABLE my_table SET TBLPROPERTIES (
 """)
 
 ```
-```python
-
-```
-%md
-## Concept 55 — Write Optimization
-
-**Available in Community Edition — full hands-on.**
-
-### Overview
-
-Write optimization techniques improve **read performance** by controlling output file size and layout:
-
-| Technique | What It Does |
-|---|---|
-| `optimizeWrite` | Coalesces small files before writing (auto-shuffle) |
-| `maxRecordsPerFile` | Caps records per output file |
-| `targetFileSize` | Desired file size (default 1GB for Parquet) |
-| Repartition before write | Controls number of output files |
-| Coalesce before write | Reduces files without shuffle |
-| ZORDER optimization | Clusters related data in files |
 
 ```python
 
 ```
-%md
-### Create Test Table and Benchmark Different Write Strategies
+
+ ## Concept 55 — Write Optimization
+
+ **Available in Community Edition — full hands-on.**
+
+ ### Overview
+
+ Write optimization techniques improve **read performance** by controlling output file size and layout:
+
+ | Technique | What It Does |
+ |---|---|
+ | `optimizeWrite` | Coalesces small files before writing (auto-shuffle) |
+ | `maxRecordsPerFile` | Caps records per output file |
+ | `targetFileSize` | Desired file size (default 1GB for Parquet) |
+ | Repartition before write | Controls number of output files |
+ | Coalesce before write | Reduces files without shuffle |
+ | ZORDER optimization | Clusters related data in files |
 
 ```python
 
-write_test_path = "/tmp/delta/perf_demo/write_opt"
+```
+
+ ### Create Test Table and Benchmark Different Write Strategies
+
+```python
 
 # Cleanup if exists
-dbutils.fs.rm(write_test_path + "_base", True)
-dbutils.fs.rm(write_test_path + "_coalesced", True)
-dbutils.fs.rm(write_test_path + "_optimized", True)
+spark.sql("DROP TABLE IF EXISTS default.perf_write_opt_base")
+spark.sql("DROP TABLE IF EXISTS default.perf_write_opt_coalesced")
+spark.sql("DROP TABLE IF EXISTS default.perf_write_opt_optimized")
 
 # Generate test data
 print("Generating write test data...")
@@ -687,7 +700,7 @@ df_write = df_write.repartition(200)
 print("\nStrategy 1: Writing without optimization (many small files)...")
 t0 = time.time()
 df_write.write.mode("overwrite").format("delta") \
-    .save(write_test_path + "_base")
+    .saveAsTable("default.perf_write_opt_base")
 t1 = time.time() - t0
 print(f"  Write time: {t1:.1f}s")
 
@@ -695,7 +708,7 @@ print(f"  Write time: {t1:.1f}s")
 print("\nStrategy 2: Writing with coalesce(8) before write...")
 t0 = time.time()
 df_write.coalesce(8).write.mode("overwrite").format("delta") \
-    .save(write_test_path + "_coalesced")
+    .saveAsTable("default.perf_write_opt_coalesced")
 t2 = time.time() - t0
 print(f"  Write time: {t2:.1f}s")
 
@@ -704,37 +717,38 @@ print("\nStrategy 3: Writing with maxRecordsPerFile=50000...")
 t0 = time.time()
 df_write.coalesce(16).write.mode("overwrite").format("delta") \
     .option("maxRecordsPerFile", 50000) \
-    .save(write_test_path + "_optimized")
+    .saveAsTable("default.perf_write_opt_optimized")
 t3 = time.time() - t0
 print(f"  Write time: {t3:.1f}s")
 
 ```
+
 ```python
 
 ```
-%md
-### Compare File Counts and Read Performance
+
+ ### Compare File Counts and Read Performance
 
 ```python
 
 # Analyze each strategy
 strategies = [
-    ("No Optimization", write_test_path + "_base"),
-    ("Coalesce(8)", write_test_path + "_coalesced"),
-    ("maxRecordsPerFile=50000", write_test_path + "_optimized"),
+    ("No Optimization", "default.perf_write_opt_base"),
+    ("Coalesce(8)", "default.perf_write_opt_coalesced"),
+    ("maxRecordsPerFile=50000", "default.perf_write_opt_optimized"),
 ]
 
 print(f"{'Strategy':<30} {'Files':>6} {'Size (MB)':>10} {'Read Time':>10}")
 print("-" * 60)
 
-for name, path in strategies:
-    detail = spark.sql(f"DESCRIBE DETAIL delta.`{path}`")
+for name, tbl_name in strategies:
+    detail = spark.sql(f"DESCRIBE DETAIL {tbl_name}")
     row = detail.select("numFiles", "sizeInBytes").collect()[0]
     num_files = row[0]
     size_mb = row[1] / (1024 * 1024)
     
     # Time a read
-    df_test = spark.read.format("delta").load(path)
+    df_test = spark.read.table(tbl_name)
     t0 = time.time()
     df_test.filter(col("group_id") == 50).count()
     read_time = time.time() - t0
@@ -742,16 +756,16 @@ for name, path in strategies:
     print(f"{name:<30} {num_files:>6} {size_mb:>9.1f} {read_time:>9.2f}s")
 
 ```
+
 ```python
 
 ```
-%md
-### optimizeWrite Setting
+
+ ### optimizeWrite Setting
 
 ```python
 
-optimize_write_path = "/tmp/delta/perf_demo/optimize_write"
-dbutils.fs.rm(optimize_write_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_optimize_write")
 
 # Test with optimizeWrite enabled
 print("Writing with optimizeWrite enabled...")
@@ -762,28 +776,29 @@ spark.conf.set("spark.databricks.delta.optimizeWrite.binSize", "512")
 
 df_write.write.mode("overwrite").format("delta") \
     .option("optimizeWrite", "true") \
-    .save(optimize_write_path)
+    .saveAsTable("default.perf_optimize_write")
 
 t_opt_write = time.time() - t0
 print(f"Write time (optimizeWrite=true): {t_opt_write:.1f}s")
 
 # Check file count
-detail = spark.sql(f"DESCRIBE DETAIL delta.`{optimize_write_path}`")
+detail = spark.sql("DESCRIBE DETAIL default.perf_optimize_write")
 detail.select("numFiles", "sizeInBytes").show()
 
 # Time a read
 t0 = time.time()
-spark.read.format("delta").load(optimize_write_path) \
+spark.read.table("default.perf_optimize_write") \
     .filter(col("group_id") == 50).count()
 t_read_opt = time.time() - t0
 print(f"Read time (optimized): {t_read_opt:.2f}s")
 
 ```
+
 ```python
 
 ```
-%md
-### Write Optimization Summary
+
+ ### Write Optimization Summary
 
 ```python
 
@@ -802,40 +817,41 @@ print("WRITE OPTIMIZATION STRATEGIES COMPARISON")
 display(write_summary_df)
 
 ```
-```python
-
-```
-%md
-## Concept 56 — Cluster Sizing & Autoscaling
-
-**NOTE:** Community Edition is **single-node only** (1 driver, 0 workers). This section is conceptual but includes Spark config guidance applicable to CE.
-
-### Cluster Sizing Principles
-
-| Workload Type | Cores | Memory | Workers | Rationale |
-|---|---|---|---|---|
-| **SQL Analytics / BI** | 4–8 per worker | 2–4 GB/core | 2–20 | High concurrency, small queries |
-| **ETL / Data Engineering** | 8–16 per worker | 2–4 GB/core | 2–50 | CPU-intensive, large shuffles |
-| **ML Training** | 8–16 per worker | 4–8 GB/core | 2–20 | GPU optional, memory for models |
-| **Streaming** | 4–8 per worker | 4 GB/core | 2–10 | Sustained usage, low latency |
-| **Development / Exploration** | 4 per worker | 8 GB/core | 1–2 | Interactive, low cost |
-
-### The `spark.sql.shuffle.partitions` Rule
-
-Default: 200 partitions per shuffle operation.  
-**Rule of thumb:** Set to 2–3× total cores in cluster.
-
-| Cluster Size | Total Cores | Recommended shuffle.partitions |
-|---|---|---|
-| 1 worker × 4 cores | 4 | 8–12 |
-| 4 workers × 8 cores | 32 | 64–96 |
-| 10 workers × 16 cores | 160 | 320–480 |
 
 ```python
 
 ```
-%md
-### Autoscaling Configuration
+
+ ## Concept 56 — Cluster Sizing & Autoscaling
+
+ **NOTE:** Community Edition is **single-node only** (1 driver, 0 workers). This section is conceptual but includes Spark config guidance applicable to CE.
+
+ ### Cluster Sizing Principles
+
+ | Workload Type | Cores | Memory | Workers | Rationale |
+ |---|---|---|---|---|
+ | **SQL Analytics / BI** | 4–8 per worker | 2–4 GB/core | 2–20 | High concurrency, small queries |
+ | **ETL / Data Engineering** | 8–16 per worker | 2–4 GB/core | 2–50 | CPU-intensive, large shuffles |
+ | **ML Training** | 8–16 per worker | 4–8 GB/core | 2–20 | GPU optional, memory for models |
+ | **Streaming** | 4–8 per worker | 4 GB/core | 2–10 | Sustained usage, low latency |
+ | **Development / Exploration** | 4 per worker | 8 GB/core | 1–2 | Interactive, low cost |
+
+ ### The `spark.sql.shuffle.partitions` Rule
+
+ Default: 200 partitions per shuffle operation.  
+ **Rule of thumb:** Set to 2–3× total cores in cluster.
+
+ | Cluster Size | Total Cores | Recommended shuffle.partitions |
+ |---|---|---|
+ | 1 worker × 4 cores | 4 | 8–12 |
+ | 4 workers × 8 cores | 32 | 64–96 |
+ | 10 workers × 16 cores | 160 | 320–480 |
+
+```python
+
+```
+
+ ### Autoscaling Configuration
 
 ```python
 
@@ -871,11 +887,12 @@ AUTOSCALING CONFIGURATION EXAMPLES
 """)
 
 ```
+
 ```python
 
 ```
-%md
-### Spot Instance Usage
+
+ ### Spot Instance Usage
 
 ```python
 
@@ -890,13 +907,14 @@ print("SPOT INSTANCE COMPARISON")
 display(spot_df)
 
 ```
+
 ```python
 
 ```
-%md
-### Right-Sizing for Community Edition
 
-In Community Edition, you have a single node. Key Spark configurations to tune:
+ ### Right-Sizing for Community Edition
+
+ In Community Edition, you have a single node. Key Spark configurations to tune:
 
 ```python
 
@@ -922,30 +940,31 @@ for config in important_configs:
         print(f"  {config:<55} = (not set, using default)")
 
 ```
-```python
-
-```
-%md
-## Concept 57 — DBU Cost Model & Billing
-
-**NOTE:** System tables for billing are not available in Community Edition. This section explains the DBU model conceptually with cost calculation examples you can apply.
-
-### What Is a DBU?
-
-**DBU** = Databricks Unit — the unit of measure for Databricks capacity consumption.
-
-**1 DBU = 1 hour of processing on a standardized unit of compute.**
-
-The actual cost per DBU depends on:
-- **Tier**: Standard, Premium, or Enterprise
-- **SKU**: All-Purpose Compute, Jobs Compute, SQL Compute, Serverless
-- **Cloud provider**: AWS, Azure, GCP (prices vary slightly)
 
 ```python
 
 ```
-%md
-### Billing SKUs
+
+ ## Concept 57 — DBU Cost Model & Billing
+
+ **NOTE:** System tables for billing are not available in Community Edition. This section explains the DBU model conceptually with cost calculation examples you can apply.
+
+ ### What Is a DBU?
+
+ **DBU** = Databricks Unit — the unit of measure for Databricks capacity consumption.
+
+ **1 DBU = 1 hour of processing on a standardized unit of compute.**
+
+ The actual cost per DBU depends on:
+ - **Tier**: Standard, Premium, or Enterprise
+ - **SKU**: All-Purpose Compute, Jobs Compute, SQL Compute, Serverless
+ - **Cloud provider**: AWS, Azure, GCP (prices vary slightly)
+
+```python
+
+```
+
+ ### Billing SKUs
 
 ```python
 
@@ -965,11 +984,12 @@ print("DATABRICKS BILLING SKUs")
 display(sku_df)
 
 ```
+
 ```python
 
 ```
-%md
-### Cost Calculation Examples
+
+ ### Cost Calculation Examples
 
 ```python
 
@@ -1005,11 +1025,12 @@ Example 4: Serverless Bursty Workload (50 queries/day, 30s avg)
 """)
 
 ```
+
 ```python
 
 ```
-%md
-### Tagging Jobs for Cost Allocation
+
+ ### Tagging Jobs for Cost Allocation
 
 ```python
 
@@ -1038,11 +1059,12 @@ You can tag clusters, jobs, and pools to track costs by team/project:
 """)
 
 ```
+
 ```python
 
 ```
-%md
-### Budget Policies (Full Platform Feature)
+
+ ### Budget Policies (Full Platform Feature)
 
 ```python
 
@@ -1068,30 +1090,30 @@ Usage monitoring (full platform):
 """)
 
 ```
+
 ```python
 
 ```
-%md
-## Concept 58 — Query Profile & Execution Plans
 
-**Available in Community Edition — full hands-on with EXPLAIN.**
+ ## Concept 58 — Query Profile & Execution Plans
 
-### Understanding EXPLAIN Output
+ **Available in Community Edition — full hands-on with EXPLAIN.**
 
-`EXPLAIN` shows how Spark will execute a query. There are three plan levels:
+ ### Understanding EXPLAIN Output
 
-| Plan | What It Shows |
-|---|---|
-| **Parsed Logical Plan** | What you wrote — unresolved references |
-| **Analyzed Logical Plan** | Resolved column names and types |
-| **Optimized Logical Plan** | After Catalyst optimizer applied rules |
-| **Physical Plan** | Actual execution strategy (how Spark runs it) |
+ `EXPLAIN` shows how Spark will execute a query. There are three plan levels:
+
+ | Plan | What It Shows |
+ |---|---|
+ | **Parsed Logical Plan** | What you wrote — unresolved references |
+ | **Analyzed Logical Plan** | Resolved column names and types |
+ | **Optimized Logical Plan** | After Catalyst optimizer applied rules |
+ | **Physical Plan** | Actual execution strategy (how Spark runs it) |
 
 ```python
 
 # Create a more complex dataset for query plan analysis
-plan_test_path = "/tmp/delta/perf_demo/query_plan"
-dbutils.fs.rm(plan_test_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_query_plan")
 
 print("Creating test data for query plan analysis...")
 df_plan = spark.range(0, 500000).select(
@@ -1103,17 +1125,18 @@ df_plan = spark.range(0, 500000).select(
     (rand(43) * 100).cast("int").alias("item_count"),
 )
 
-df_plan.write.mode("overwrite").format("delta").save(plan_test_path)
+df_plan.write.mode("overwrite").format("delta").saveAsTable("default.perf_query_plan")
 
-orders = spark.read.format("delta").load(plan_test_path)
+orders = spark.read.table("default.perf_query_plan")
 print(f"Orders: {orders.count():,} rows")
 
 ```
+
 ```python
 
 ```
-%md
-### Simple EXPLAIN — See the Physical Plan
+
+ ### Simple EXPLAIN — See the Physical Plan
 
 ```python
 
@@ -1125,11 +1148,12 @@ orders.groupBy("store_id").agg(
 ).explain()
 
 ```
+
 ```python
 
 ```
-%md
-### EXPLAIN EXTENDED — Full Plan Details
+
+ ### EXPLAIN EXTENDED — Full Plan Details
 
 ```python
 
@@ -1152,11 +1176,12 @@ query = orders.filter(col("order_amount") > 0.5) \
 query.explain(extended=True)
 
 ```
+
 ```python
 
 ```
-%md
-### Walking Through Plan Nodes
+
+ ### Walking Through Plan Nodes
 
 ```python
 
@@ -1201,11 +1226,12 @@ EXCHANGE / SHUFFLE
 """)
 
 ```
+
 ```python
 
 ```
-%md
-### Analyze a Complex Query Plan Step by Step
+
+ ### Analyze a Complex Query Plan Step by Step
 
 ```python
 
@@ -1214,16 +1240,15 @@ print("COMPLEX QUERY WITH EXPLAIN EXTENDED")
 print("=" * 80)
 
 # Create a second table for join analysis
-customer_path = "/tmp/delta/perf_demo/customers"
-dbutils.fs.rm(customer_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_customers")
 
 spark.range(1, 5001).select(
     col("id").alias("customer_id"),
     (col("id") % 5).alias("region_id"),
     rand(44).alias("loyalty_score"),
-).write.mode("overwrite").format("delta").save(customer_path)
+).write.mode("overwrite").format("delta").saveAsTable("default.perf_customers")
 
-customers = spark.read.format("delta").load(customer_path)
+customers = spark.read.table("default.perf_customers")
 
 # Complex query with join, filter, aggregate, order
 complex_query = orders.alias("o") \
@@ -1241,11 +1266,12 @@ complex_query = orders.alias("o") \
 complex_query.explain(extended=True)
 
 ```
+
 ```python
 
 ```
-%md
-### Identifying Slow Operators
+
+ ### Identifying Slow Operators
 
 ```python
 
@@ -1281,11 +1307,12 @@ IDENTIFYING SLOW OPERATORS IN PLANS
 """)
 
 ```
+
 ```python
 
 ```
-%md
-### Generate and Analyze Your Own Query Profile
+
+ ### Generate and Analyze Your Own Query Profile
 
 ```python
 
@@ -1313,34 +1340,35 @@ for row in result[:5]:
     print(f"  store_id={row['store_id']}, total={row['total']:.2f}")
 
 ```
-```python
-
-```
-%md
-## Concept 59 — Join Performance Diagnosis
-
-**Available in Community Edition — full hands-on.**
-
-### Join Strategies in Spark
-
-| Strategy | When Used | Cost | Best For |
-|---|---|---|---|
-| **Broadcast Hash Join (BHJ)** | One side < threshold (default 10MB) | No shuffle | Small lookup tables |
-| **Sort Merge Join (SMJ)** | Both sides large, join keys sortable | Shuffle both sides | Large-large joins |
-| **Shuffled Hash Join (SHJ)** | One side 3× smaller than other | Shuffle one side | Medium-large joins |
-| **Broadcast Nested Loop Join (BNLJ)** | Non-equi join, one side small | Cartesian risk | Cross/custom joins |
-| **Cartesian Product Join** | No join condition | Very expensive | Avoid! |
 
 ```python
 
 ```
-%md
-### Create Large Tables for Join Benchmarking
+
+ ## Concept 59 — Join Performance Diagnosis
+
+ **Available in Community Edition — full hands-on.**
+
+ ### Join Strategies in Spark
+
+ | Strategy | When Used | Cost | Best For |
+ |---|---|---|---|
+ | **Broadcast Hash Join (BHJ)** | One side < threshold (default 10MB) | No shuffle | Small lookup tables |
+ | **Sort Merge Join (SMJ)** | Both sides large, join keys sortable | Shuffle both sides | Large-large joins |
+ | **Shuffled Hash Join (SHJ)** | One side 3× smaller than other | Shuffle one side | Medium-large joins |
+ | **Broadcast Nested Loop Join (BNLJ)** | Non-equi join, one side small | Cartesian risk | Cross/custom joins |
+ | **Cartesian Product Join** | No join condition | Very expensive | Avoid! |
 
 ```python
 
-join_test_dir = "/tmp/delta/perf_demo/joins"
-dbutils.fs.rm(join_test_dir, True)
+```
+
+ ### Create Large Tables for Join Benchmarking
+
+```python
+
+spark.sql("DROP TABLE IF EXISTS default.perf_joins_fact")
+spark.sql("DROP TABLE IF EXISTS default.perf_joins_dim")
 
 NUM_FACT = 1000000
 NUM_DIM = 1000
@@ -1366,23 +1394,24 @@ dim = spark.range(1, NUM_DIM + 1).select(
 )
 
 # Write both
-fact.write.mode("overwrite").format("delta").save(f"{join_test_dir}/fact")
-dim.write.mode("overwrite").format("delta").save(f"{join_test_dir}/dim")
+fact.write.mode("overwrite").format("delta").saveAsTable("default.perf_joins_fact")
+dim.write.mode("overwrite").format("delta").saveAsTable("default.perf_joins_dim")
 
 print(f"Fact table: {fact.count():,} rows")
 print(f"Dim table:  {dim.count():,} rows")
 
 ```
+
 ```python
 
 ```
-%md
-### Test 1: Default Join (Auto Broadcast)
+
+ ### Test 1: Default Join (Auto Broadcast)
 
 ```python
 
-fact_df = spark.read.format("delta").load(f"{join_test_dir}/fact")
-dim_df = spark.read.format("delta").load(f"{join_test_dir}/dim")
+fact_df = spark.read.table("default.perf_joins_fact")
+dim_df = spark.read.table("default.perf_joins_dim")
 
 print("TEST 1: Default join (auto broadcast)")
 print("-" * 50)
@@ -1400,11 +1429,12 @@ result1_count = result1.count()
 print(f"Result rows: {result1_count:,}")
 
 ```
+
 ```python
 
 ```
-%md
-### Test 2: Sort-Merge Join (Disable Broadcast, Force Shuffle)
+
+ ### Test 2: Sort-Merge Join (Disable Broadcast, Force Shuffle)
 
 ```python
 
@@ -1430,11 +1460,12 @@ result2_count = result2.count()
 print(f"Result rows: {result2_count:,}")
 
 ```
+
 ```python
 
 ```
-%md
-### Test 3: Broadcast Hint
+
+ ### Test 3: Broadcast Hint
 
 ```python
 
@@ -1456,11 +1487,12 @@ result3_count = result3.count()
 print(f"Result rows: {result3_count:,}")
 
 ```
+
 ```python
 
 ```
-%md
-### Test 4: Join After Pre-Aggregation (Reduce Shuffle)
+
+ ### Test 4: Join After Pre-Aggregation (Reduce Shuffle)
 
 ```python
 
@@ -1494,11 +1526,12 @@ print(f"\nPre-aggregation + join: {t_join:.2f}s")
 print(f"Result rows: {result4.count():,}")
 
 ```
+
 ```python
 
 ```
-%md
-### Tuning Join Thresholds
+
+ ### Tuning Join Thresholds
 
 ```python
 
@@ -1529,11 +1562,12 @@ print(f"\nCurrent broadcast threshold: {current_threshold}")
 print(f"If table size < {current_threshold}, Spark uses Broadcast Hash Join.")
 
 ```
+
 ```python
 
 ```
-%md
-### Join Performance Summary
+
+ ### Join Performance Summary
 
 ```python
 
@@ -1573,30 +1607,30 @@ for name, t in timings:
     print(f"{name:<30} {t:>7.2f}s {'baseline' if name == timings[0][0] else f'{speedup:>9.1f}x'} ")
 
 ```
-```python
-
-```
-%md
-## Concept 60 — MERGE Write Amplification
-
-**Available in Community Edition — full hands-on.**
-
-### What Is Write Amplification?
-
-When MERGE matches rows in a file, it **rewrites the ENTIRE file**, not just the matched rows. If 1 row in a 100MB file is updated, MERGE rewrites all 100MB. This is the core of write amplification.
-
-**Deletion Vectors** (Delta 3.0+, full platform) solve this by recording which rows are deleted/matched, avoiding full file rewrites. Community Edition uses an older Delta version without this feature.
 
 ```python
 
 ```
-%md
-### Create Test Table for MERGE Experiments
+
+ ## Concept 60 — MERGE Write Amplification
+
+ **Available in Community Edition — full hands-on.**
+
+ ### What Is Write Amplification?
+
+ When MERGE matches rows in a file, it **rewrites the ENTIRE file**, not just the matched rows. If 1 row in a 100MB file is updated, MERGE rewrites all 100MB. This is the core of write amplification.
+
+ **Deletion Vectors** (Delta 3.0+, full platform) solve this by recording which rows are deleted/matched, avoiding full file rewrites. Community Edition uses an older Delta version without this feature.
 
 ```python
 
-merge_test_path = "/tmp/delta/perf_demo/merge_test"
-dbutils.fs.rm(merge_test_path, True)
+```
+
+ ### Create Test Table for MERGE Experiments
+
+```python
+
+spark.sql("DROP TABLE IF EXISTS default.perf_merge_test")
 
 print("Creating base table for MERGE testing...")
 
@@ -1610,20 +1644,21 @@ merge_base = spark.range(0, 500000).select(
     lit("old").alias("status"),
 )
 
-merge_base.write.mode("overwrite").format("delta").save(merge_test_path)
+merge_base.write.mode("overwrite").format("delta").saveAsTable("default.perf_merge_test")
 print(f"Base table: {merge_base.count():,} rows")
 
 # Show file distribution
-detail = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 print(f"Initial files: {detail.select('numFiles').collect()[0][0]}")
 print(f"Initial size: {detail.select('sizeInBytes').collect()[0][0] / 1024 / 1024:.1f} MB")
 
 ```
+
 ```python
 
 ```
-%md
-### MERGE 1: Wide MERGE (Matches Many Files — High Amplification)
+
+ ### MERGE 1: Wide MERGE (Matches Many Files — High Amplification)
 
 ```python
 
@@ -1637,16 +1672,16 @@ updates_wide = spark.range(1, 5001).select(
 # Create a temp view for MERGE
 updates_wide.createOrReplaceTempView("updates_wide")
 
-spark.sql(f"""
+spark.sql("""
     CREATE OR REPLACE TEMP VIEW base_table AS
-    SELECT * FROM delta.`{merge_test_path}`
+    SELECT * FROM default.perf_merge_test
 """)
 
 print("MERGE 1: Wide MERGE (touching many products across many files)")
 print("-" * 60)
 
-merge_sql_1 = f"""
-MERGE INTO delta.`{merge_test_path}` AS target
+merge_sql_1 = """
+MERGE INTO default.perf_merge_test AS target
 USING updates_wide AS source
 ON target.product_id = source.product_id
 WHEN MATCHED THEN UPDATE SET
@@ -1660,7 +1695,7 @@ spark.sql(merge_sql_1)
 t_merge_wide = time.time() - t0
 
 # Check what happened
-history_wide = spark.sql(f"DESCRIBE HISTORY delta.`{merge_test_path}`") \
+history_wide = spark.sql("DESCRIBE HISTORY default.perf_merge_test") \
     .filter(col("operation") == "MERGE") \
     .select("operationMetrics") \
     .collect()
@@ -1669,30 +1704,32 @@ print(f"MERGE Wide completed in {t_merge_wide:.2f}s")
 if history_wide:
     print(f"Operation metrics: {history_wide[0]['operationMetrics']}")
 
-detail1 = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail1 = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 files_after_wide = detail1.select("numFiles").collect()[0][0]
 print(f"Files after wide MERGE: {files_after_wide}")
 
 ```
+
 ```python
 
 ```
-%md
-### Reset Table for Second Test
+
+ ### Reset Table for Second Test
 
 ```python
 
 # Reset the table for a fair second test
-dbutils.fs.rm(merge_test_path, True)
-merge_base.write.mode("overwrite").format("delta").save(merge_test_path)
+spark.sql("DROP TABLE IF EXISTS default.perf_merge_test")
+merge_base.write.mode("overwrite").format("delta").saveAsTable("default.perf_merge_test")
 print("Table reset to initial state.")
 
 ```
+
 ```python
 
 ```
-%md
-### MERGE 2: Targeted MERGE (Single Product — Low Amplification)
+
+ ### MERGE 2: Targeted MERGE (Single Product — Low Amplification)
 
 ```python
 
@@ -1708,8 +1745,8 @@ updates_narrow.createOrReplaceTempView("updates_narrow")
 print("MERGE 2: Targeted MERGE (single product)")
 print("-" * 60)
 
-merge_sql_2 = f"""
-MERGE INTO delta.`{merge_test_path}` AS target
+merge_sql_2 = """
+MERGE INTO default.perf_merge_test AS target
 USING updates_narrow AS source
 ON target.product_id = source.product_id
 WHEN MATCHED THEN UPDATE SET
@@ -1722,7 +1759,7 @@ t0 = time.time()
 spark.sql(merge_sql_2)
 t_merge_narrow = time.time() - t0
 
-history_narrow = spark.sql(f"DESCRIBE HISTORY delta.`{merge_test_path}`") \
+history_narrow = spark.sql("DESCRIBE HISTORY default.perf_merge_test") \
     .filter(col("operation") == "MERGE") \
     .select("operationMetrics") \
     .collect()
@@ -1731,25 +1768,26 @@ print(f"MERGE Targeted completed in {t_merge_narrow:.2f}s")
 if history_narrow:
     print(f"Operation metrics: {history_narrow[0]['operationMetrics']}")
 
-detail2 = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail2 = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 files_after_narrow = detail2.select("numFiles").collect()[0][0]
 print(f"Files after targeted MERGE: {files_after_narrow}")
 
 ```
+
 ```python
 
 ```
-%md
-### MERGE 3: DELETE + INSERT Approach (Alternative to MERGE)
+
+ ### MERGE 3: DELETE + INSERT Approach (Alternative to MERGE)
 
 ```python
 
 # Reset table
-dbutils.fs.rm(merge_test_path, True)
-merge_base.write.mode("overwrite").format("delta").save(merge_test_path)
+spark.sql("DROP TABLE IF EXISTS default.perf_merge_test")
+merge_base.write.mode("overwrite").format("delta").saveAsTable("default.perf_merge_test")
 print("Table reset for DELETE + INSERT test.")
 
-merge_base_df = spark.read.format("delta").load(merge_test_path)
+merge_base_df = spark.read.table("default.perf_merge_test")
 
 print("\nMERGE 3: DELETE + INSERT approach (alternative to MERGE)")
 print("-" * 60)
@@ -1763,7 +1801,7 @@ products_to_update = [p.product_id for p in updates_wide.select("product_id").di
 
 # Step 2: Delete old rows
 from delta.tables import DeltaTable
-delta_table = DeltaTable.forPath(spark, merge_test_path)
+delta_table = DeltaTable.forName(spark, "default.perf_merge_test")
 
 # For the DELETE + INSERT approach, we'll use the DeltaTable API
 # First delete matching rows, then insert new ones
@@ -1782,21 +1820,22 @@ insert_df = updated_rows.select(
     col("amount"), col("quantity"), col("status")
 )
 
-insert_df.write.mode("append").format("delta").save(merge_test_path)
+insert_df.write.mode("append").format("delta").saveAsTable("default.perf_merge_test")
 
 t_delete_insert = time.time() - t0
 
 print(f"DELETE + INSERT completed in {t_delete_insert:.2f}s")
 
-detail3 = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail3 = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 print(f"Files after DELETE + INSERT: {detail3.select('numFiles').collect()[0][0]}")
 
 ```
+
 ```python
 
 ```
-%md
-### Analyze MERGE Performance with DESCRIBE HISTORY
+
+ ### Analyze MERGE Performance with DESCRIBE HISTORY
 
 ```python
 
@@ -1804,25 +1843,25 @@ print("=" * 80)
 print("DESCRIBE HISTORY — COMPARE ALL OPERATIONS")
 print("=" * 80)
 
-history = spark.sql(f"DESCRIBE HISTORY delta.`{merge_test_path}`")
+history = spark.sql("DESCRIBE HISTORY default.perf_merge_test")
 history.select("version", "timestamp", "operation", "operationMetrics").show(20, truncate=False)
 
 # Also show DESCRIBE DETAIL for current state
 print("\nCURRENT TABLE STATE:")
-detail_final = spark.sql(f"DESCRIBE DETAIL delta.`{merge_test_path}`")
+detail_final = spark.sql("DESCRIBE DETAIL default.perf_merge_test")
 detail_final.select("numFiles", "sizeInBytes").show()
 
 ```
+
 ```python
 
 ```
-%md
-### MERGE 4: MERGE with Matching on Clustered Keys (Optimization)
+
+ ### MERGE 4: MERGE with Matching on Clustered Keys (Optimization)
 
 ```python
 
-merge_clustered_path = "/tmp/delta/perf_demo/merge_clustered"
-dbutils.fs.rm(merge_clustered_path, True)
+spark.sql("DROP TABLE IF EXISTS default.perf_merge_clustered")
 
 print("Creating ZORDERED table for optimized MERGE...")
 
@@ -1837,18 +1876,18 @@ merge_base_clustered = spark.range(0, 500000).select(
 
 # Write with ZORDER
 merge_base_clustered.write.mode("overwrite").format("delta") \
-    .save(merge_clustered_path)
+    .saveAsTable("default.perf_merge_clustered")
 
 # Run OPTIMIZE with ZORDER on merge key
-spark.sql(f"OPTIMIZE delta.`{merge_clustered_path}` ZORDER BY (product_id)")
+spark.sql("OPTIMIZE default.perf_merge_clustered ZORDER BY (product_id)")
 print("ZORDER optimization on product_id completed.")
 
 # Now run MERGE on clustered table
 print("\nMERGE on ZORDERED table:")
 t0 = time.time()
 
-merge_sql_clustered = f"""
-MERGE INTO delta.`{merge_clustered_path}` AS target
+merge_sql_clustered = """
+MERGE INTO default.perf_merge_clustered AS target
 USING updates_wide AS source
 ON target.product_id = source.product_id
 WHEN MATCHED THEN UPDATE SET
@@ -1862,11 +1901,12 @@ t_merge_clustered = time.time() - t0
 print(f"MERGE on ZORDERED table: {t_merge_clustered:.2f}s")
 
 ```
+
 ```python
 
 ```
-%md
-### MERGE Amplification Summary
+
+ ### MERGE Amplification Summary
 
 ```python
 
@@ -1905,11 +1945,12 @@ TO REDUCE MERGE AMPLIFICATION:
 """)
 
 ```
+
 ```python
 
 ```
-%md
-## Performance & Cost — Summary Table
+
+ ## Performance & Cost — Summary Table
 
 ```python
 
@@ -1933,62 +1974,63 @@ print("""
 """)
 
 ```
-```python
-
-```
-%md
-## Self-Assessment Questions
-
-Test your understanding of concepts #51–#60:
-
-**Concept 51 — Serverless Economics:**
-1. When is serverless more expensive than classic compute?
-2. What is the minimum billing period for serverless vs classic SQL warehouses?
-3. How does serverless eliminate idle cluster waste?
-
-**Concept 52 — Predicate Pushdown:**
-4. Why does `WHERE YEAR(date_col) = 2023` prevent predicate pushdown?
-5. What must you do to enable file-level statistics for a column?
-6. Does repartitioning to a different column break data skipping?
-
-**Concept 53 — Predictive Optimization:**
-7. What three operations does Predictive Optimization run automatically?
-8. When would you still manually run OPTIMIZE even with Predictive Optimization?
-
-**Concept 54 — Column Statistics:**
-9. For how many columns does Delta collect per-file statistics by default?
-10. What command refreshes column statistics?
-
-**Concept 55 — Write Optimization:**
-11. What's the difference between `coalesce()` and `repartition()` before writing?
-12. What does `maxRecordsPerFile` control?
-
-**Concept 56 — Cluster Sizing:**
-13. What's the recommended `spark.sql.shuffle.partitions` relative to core count?
-14. When would you use spot instances?
-
-**Concept 57 — DBU Cost Model:**
-15. Which SKU is cheapest per DBU for scheduled jobs?
-16. How do you allocate costs to specific teams?
-
-**Concept 58 — Query Plans:**
-17. What's the difference between a logical plan and a physical plan?
-18. What does an Exchange node in the physical plan indicate?
-
-**Concept 59 — Join Performance:**
-19. What join strategy does Spark use when one table is smaller than 10MB?
-20. How can you reduce shuffle during a join?
-
-**Concept 60 — MERGE Amplification:**
-21. Why does MERGE rewrite entire files?
-22. What technique reduces the number of files touched by MERGE?
-23. What Delta 3.0+ feature eliminates merge write amplification entirely?
 
 ```python
 
 ```
-%md
-### Quick Knowledge Check — Write Your Answers Below
+
+ ## Self-Assessment Questions
+
+ Test your understanding of concepts #51–#60:
+
+ **Concept 51 — Serverless Economics:**
+ 1. When is serverless more expensive than classic compute?
+ 2. What is the minimum billing period for serverless vs classic SQL warehouses?
+ 3. How does serverless eliminate idle cluster waste?
+
+ **Concept 52 — Predicate Pushdown:**
+ 4. Why does `WHERE YEAR(date_col) = 2023` prevent predicate pushdown?
+ 5. What must you do to enable file-level statistics for a column?
+ 6. Does repartitioning to a different column break data skipping?
+
+ **Concept 53 — Predictive Optimization:**
+ 7. What three operations does Predictive Optimization run automatically?
+ 8. When would you still manually run OPTIMIZE even with Predictive Optimization?
+
+ **Concept 54 — Column Statistics:**
+ 9. For how many columns does Delta collect per-file statistics by default?
+ 10. What command refreshes column statistics?
+
+ **Concept 55 — Write Optimization:**
+ 11. What's the difference between `coalesce()` and `repartition()` before writing?
+ 12. What does `maxRecordsPerFile` control?
+
+ **Concept 56 — Cluster Sizing:**
+ 13. What's the recommended `spark.sql.shuffle.partitions` relative to core count?
+ 14. When would you use spot instances?
+
+ **Concept 57 — DBU Cost Model:**
+ 15. Which SKU is cheapest per DBU for scheduled jobs?
+ 16. How do you allocate costs to specific teams?
+
+ **Concept 58 — Query Plans:**
+ 17. What's the difference between a logical plan and a physical plan?
+ 18. What does an Exchange node in the physical plan indicate?
+
+ **Concept 59 — Join Performance:**
+ 19. What join strategy does Spark use when one table is smaller than 10MB?
+ 20. How can you reduce shuffle during a join?
+
+ **Concept 60 — MERGE Amplification:**
+ 21. Why does MERGE rewrite entire files?
+ 22. What technique reduces the number of files touched by MERGE?
+ 23. What Delta 3.0+ feature eliminates merge write amplification entirely?
+
+```python
+
+```
+
+ ### Quick Knowledge Check — Write Your Answers Below
 
 ```python
 
@@ -2058,11 +2100,12 @@ SELF-ASSESSMENT ANSWER KEY (check your knowledge)
 """)
 
 ```
+
 ```python
 
 ```
-%md
-## Performance Optimization Cheat Sheet
+
+ ## Performance Optimization Cheat Sheet
 
 ```python
 
@@ -2107,4 +2150,7 @@ print("""
 
 ```
 
+```python
+
 print("End of 06_Performance_and_Cost notebook. All 10 concepts (#51–#60) covered.")
+```
