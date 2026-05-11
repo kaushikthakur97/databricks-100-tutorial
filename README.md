@@ -335,6 +335,30 @@ Day 50 : Stream-Stream Joins         Day 100: Testing Patterns
 
 ---
 
+##  End-to-End Projects
+
+Put concepts into practice with 4 real-world projects:
+
+| # | Project | Concepts Applied | What You'll Build |
+|---|---------|-----------------|-------------------|
+|   | **E-Commerce Lakehouse** | Medallion, SCD2, CDF, MERGE, Window Functions | End-to-end Bronze→Silver→Gold pipeline |
+|   | **IoT Streaming Pipeline** | Structured Streaming, Watermarks, Windowed Agg | Real-time anomaly detection from 10K sensors |
+|   | **Fraud Detection** | Window Functions, Joins, AQE, Performance Tuning | 1M+ transaction fraud detection at scale |
+|   | **Customer 360** | Unity Catalog, Dynamic Views, Lineage, Audit | Governed multi-source customer data platform |
+
+---
+
+##  Bonus Resources
+
+| Resource | What It Is | Perfect For |
+|----------|-----------|-------------|
+|   **Cheat Sheet** | All commands, configs, syntax in one place | Quick reference, interviews |
+|   **Interview Q&A** | 50 curated questions with detailed answers | Certification & interview prep |
+|   **Troubleshooting Guide** | Common errors + diagnostic patterns | Debugging production issues |
+|   **Production Checklist** | 7 checklists with verification SQL | Go-live readiness |
+
+---
+
 ##  Repo Structure
 
 ```
@@ -348,23 +372,26 @@ databricks-100-tutorial/
 |
 |-- notebooks/                          <-- 10 individual Databricks notebooks (.py)
 |   |-- 01_Delta_Lake_Fundamentals.py
-|   |-- 02_Spark_Execution.py
-|   |-- 03_SQL_and_DataFrames.py
-|   |-- 04_Data_Ingestion.py
-|   |-- 05_Streaming.py
-|   |-- 06_Performance_and_Cost.py
-|   |-- 07_Unity_Catalog_Governance.py
-|   |-- 08_Lakeflow_Declarative_Pipelines.py
-|   |-- 09_Workflows_CICD_Operations.py
+|   |-- ...                             (02-09)
 |   `-- 10_Architecture_Advanced_Patterns.py
 |
+|-- projects/                           <-- 4 end-to-end project notebooks
+|   |-- 01_ecommerce_lakehouse.py
+|   |-- 02_iot_streaming.py
+|   |-- 03_fraud_detection.py
+|   `-- 04_customer_360.py
+|
+|-- resources/                          <-- Cheat sheets, Q&A, guides
+|   |-- cheat_sheet.py
+|   |-- interview_questions.py
+|   |-- troubleshooting.py
+|   `-- production_checklist.py
+|
 |-- docs/                               <-- Offline-readable markdown files
-|   |-- 01_Delta_Lake_Fundamentals.md
-|   |-- ...
-|   `-- 10_Architecture_Advanced_Patterns.md
+|   `-- 01-10_*.md
 |
 `-- scripts/                            <-- Build utilities
-    `-- build_ipynb.py                  <-- Rebuild combined IPYNB from notebooks/
+    `-- build_ipynb.py
 ```
 
 ---
