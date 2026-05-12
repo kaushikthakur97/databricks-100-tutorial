@@ -11,9 +11,10 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Level-Beginner_to_Advanced-blue?style=flat-square">
-  <img src="https://img.shields.io/badge/Notebooks-10-green?style=flat-square">
+  <img src="https://img.shields.io/badge/Notebooks-22_Total-green?style=flat-square">
   <img src="https://img.shields.io/badge/Concepts-100-orange?style=flat-square">
-  <img src="https://img.shields.io/badge/Databricks-Community_Edition-red?style=flat-square">
+  <img src="https://img.shields.io/badge/Serverless-Ready-success?style=flat-square">
+  <img src="https://img.shields.io/badge/Databricks-Free_Edition_+_Serverless-red?style=flat-square">
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square">
 </p>
 
@@ -21,7 +22,7 @@
 
 #  Databricks 100: Zero to Pro
 
-> The most comprehensive, hands-on Databricks tutorial on GitHub. **100 concepts. 10 notebooks. 1 complete IPYNB.** From `SELECT *` to production-grade lakehouse architecture.
+> The most comprehensive, hands-on Databricks tutorial on GitHub. **100 concepts. 10 tutorials. 4 projects. 4 bonus resources.** From `SELECT *` to production-grade lakehouse architecture — fully serverless-compatible.
 
 ```
    Beginner                   Intermediate                    Advanced
@@ -123,7 +124,7 @@
 |------------|---------------------------|
 |  "Where do I even start?" | **Progressive difficulty**: Easy (Month 1) -> Medium -> Hard -> Production |
 |  "I learn by doing, not reading" | **Every concept** has copy-paste-ready executable code |
-|  "I don't have a paid account" | 100% compatible with **FREE Community Edition** |
+|  "I don't have a paid account" | Works on **free Databricks tier** (no credit card) + serverless compute |
 |  "I need to pass the cert" | Covers **Associate** (~60 concepts) AND **Professional** (all 100) |
 |  "I'm stuck on a concept" | **Self-assessment questions** after each concept — find your gaps |
 |  "Tutorials don't explain WHY" | Each concept includes **Real-World Use Case** and **What Problem It Solves** |
@@ -134,7 +135,7 @@
 ##  Quick Start (5 Minutes)
 
 ### Step 1: Free Databricks Account
-Sign up at [community.cloud.databricks.com](https://community.cloud.databricks.com). No credit card. 100% free.
+Sign up at [databricks.com/try](https://databricks.com/try) for the **free tier** (no credit card). Also works on serverless compute.
 
 ### Step 2: Import the Complete Notebook
 
@@ -290,10 +291,13 @@ Day 50 : Stream-Stream Joins         Day 100: Testing Patterns
 
 | Format | Location | Best For |
 |--------|----------|----------|
-|   Combined IPYNB | `Databricks_100_Complete.ipynb` | **One-click import** |
-|   Individual Notebooks | `notebooks/01-10_*.py` | Import one topic at a time |
+|   Combined IPYNB | `Databricks_100_Complete.ipynb` | **One-click import of all 100 concepts** |
+|   Concept Notebooks | `notebooks/01-10_*.py` | Learn one topic at a time |
+|   End-to-End Projects | `projects/01-04_*.py` | Practice with real-world scenarios |
+|   Bonus Resources | `resources/*.py` | Cheat sheet, interview Q&A, troubleshooting |
 |   Markdown Docs | `docs/01-10_*.md` | Read offline, phone, tablet |
-|   Clone Entire Repo | This repository | Contribute, customize |
+|   Features Guide | `docs/FEATURES_AND_PROBLEMS.md` | Every feature mapped to business problems |
+|   Clone Entire Repo | This repository | Contribute, customize, full access |
 
 ---
 
@@ -337,19 +341,21 @@ Week 12:   Interview Q&A + Cheat Sheet + Mock Exams — REVIEW
 
 ---
 
-##  Community Edition vs Full Platform
+##  Free Tier & Serverless Compatibility
 
-| Feature | Community Edition | How The Tutorial Handles It |
-|---------|:-----------------:|----------------------------|
-| Delta Lake |  | Fully executable |
-| Spark SQL & DataFrames |  | Fully executable |
-| Structured Streaming |  | Fully executable |
-| Unity Catalog |  | Concepts explained + Hive equivalents |
-| Photon Engine |  | Explained + performance comparisons |
-| Serverless Compute |  | Architecture & economics explained |
-| Lakeflow Pipelines (DLT) |  | Manual equivalents + syntax reference |
-| Databricks Workflows |  | Notebook-based alternatives |
-| Predictive Optimization |  | Manual OPTIMIZE/VACUUM patterns shown |
+All 22 notebooks are **serverless-compatible** using managed Delta tables. No DBFS paths, no `/tmp/` dependencies.
+
+| Feature | Availability | How The Tutorial Handles It |
+|---------|:-----------:|----------------------------|
+| Delta Lake |  Free + Serverless | Fully executable with `saveAsTable` |
+| Spark SQL & DataFrames |  Free + Serverless | Fully executable |
+| Structured Streaming |  Free + Serverless | Executable (checkpoints need cloud storage on serverless) |
+| Unity Catalog |  Full Platform | Concepts explained; managed tables in `default` |
+| Photon Engine |  Serverless | Explained + performance comparisons |
+| Serverless Compute |  Full Platform | Architecture & economics explained |
+| Lakeflow Pipelines (DLT) |  Full Platform | Manual equivalents + syntax reference |
+| Databricks Workflows |  Full Platform | Notebook-based alternatives + patterns |
+| Predictive Optimization |  Full Platform | Manual OPTIMIZE/VACUUM patterns shown |
 
 ---
 
@@ -405,11 +411,13 @@ databricks-100-tutorial/
 |   |-- troubleshooting.py
 |   `-- production_checklist.py
 |
-|-- docs/                               <-- Offline-readable markdown files
-|   `-- 01-10_*.md
+|-- docs/                               <-- Reference documentation
+|   |-- 01-10_*.md                     <-- Offline-readable markdown files
+|   `-- FEATURES_AND_PROBLEMS.md       <-- 187 features → business problems guide
 |
-`-- scripts/                            <-- Build utilities
-    `-- build_ipynb.py
+`-- scripts/                            <-- Build utilities (gitignored)
+    |-- build_ipynb.py
+    `-- build_md.py
 ```
 
 ---
@@ -450,7 +458,7 @@ databricks-100-tutorial/
 
 <details>
 <summary><b>Q: Can I really learn Databricks 100% free?</b></summary>
-Yes. Databricks Community Edition is completely free, no credit card required. All 100 concepts are learnable with it. Features requiring paid plans are clearly explained with free alternatives.
+Yes. The Databricks free tier requires no credit card. All 100 concepts + 4 projects run on it. Full-platform features are explained with managed table alternatives.
 </details>
 
 <details>
