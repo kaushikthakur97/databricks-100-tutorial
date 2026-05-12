@@ -297,13 +297,31 @@ Day 50 : Stream-Stream Joins         Day 100: Testing Patterns
 
 ---
 
-##  Certification Coverage
+##  Certification Roadmap
 
-| Certification | Concepts Covered | Depth |
-|--------------|:----------------:|-------|
-| **Databricks Associate DE** | ~60 / 100 | Easy + Medium |
-| **Databricks Professional DE** | 100 / 100 | Production depth |
-| **Apache Spark Developer** | #11 - #30 | Core engine internals |
+This repo is designed to take you from **zero to certified**. Every concept maps to exam objectives.
+
+| Certification | Concepts Covered | Difficulty | Study Path |
+|--------------|:----------------:|-----------|-------------|
+| **Databricks Associate DE** | ~60 / 100 | Easy + Medium | Notebooks 1-4, 7, 9 + Cheat Sheet + Interview Q&A |
+| **Databricks Professional DE** | 100 / 100 | Production depth | All 10 notebooks + All 4 projects + Production Checklist |
+| **Apache Spark Developer** | #11 - #30 | Core internals | Notebooks 2-3 + Interview Q&A |
+
+### Study Plan (12 Weeks)
+
+```
+Week 1-2:  Notebooks 1-2 (Delta Lake + Spark Execution) — FOUNDATIONS
+Week 3-4:  Notebooks 3-4 (SQL/DFs + Ingestion) — DAILY WORK
+Week 5:    Notebook 5 (Streaming) — REAL-TIME
+Week 6:    Notebook 6 (Performance) — OPTIMIZATION
+Week 7-8:  Notebooks 7-8 (Unity Catalog + Lakeflow) — GOVERNANCE
+Week 9:    Notebook 9 (Workflows/CI/CD) — PRODUCTION
+Week 10:   Notebook 10 (Architecture) — ADVANCED
+Week 11:   Projects 1-4 (End-to-End) — HANDS-ON
+Week 12:   Interview Q&A + Cheat Sheet + Mock Exams — REVIEW
+```
+
+> See [docs/FEATURES_AND_PROBLEMS.md](docs/FEATURES_AND_PROBLEMS.md) for a complete mapping of every Databricks feature to the business problems it solves.
 
 ---
 
@@ -465,6 +483,7 @@ Open an issue or PR. Found a bug? Better example? Outdated info? We welcome cont
 
 | Resource | Description | Link |
 |----------|------------|------|
+|   Features & Problems Guide | Every Databricks feature mapped to the problem it solves | [docs/FEATURES_AND_PROBLEMS.md](docs/FEATURES_AND_PROBLEMS.md) |
 |   Databricks Academy | Official free courses | [academy.databricks.com](https://academy.databricks.com) |
 |   Databricks Docs | Official reference documentation | [docs.databricks.com](https://docs.databricks.com) |
 |   Data Engineer Wiki | Cheat sheets, learning paths | [dataengineer.wiki](https://dataengineer.wiki) |

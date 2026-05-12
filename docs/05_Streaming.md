@@ -57,26 +57,23 @@ from pyspark.sql.streaming import DataStreamWriter
 print("✅ Spark session ready")
 
 # ── Serverless-compatible configuration ──
+# NOTE: Checkpoint paths require a persistent filesystem on serverless.
+# Use cloud storage (s3://, abfss://, gs://) or Unity Catalog Volumes (/Volumes/...).
+# Local /tmp/ is used here as fallback; replace with your cloud path for production.
 DB = "default"
-CHECKPOINT_DIR = f"/tmp/{DB}/_checkpoints_streaming"
+CHECKPOINT_BASE = "/tmp/streaming_checkpoints"
 
 def get_checkpoint(name):
-    """Return a checkpoint path with serverless fallback to DBFS."""
-    local = f"{CHECKPOINT_DIR}/{name}"
+    """Return a checkpoint path. Replace with cloud storage for production serverless."""
+    path = f"{CHECKPOINT_BASE}/{name}"
     try:
-        os.makedirs(local, exist_ok=True)
-        return local
-    except Exception:
-        fallback = f"dbfs:/tmp/{DB}/_checkpoints_streaming/{name}"
-        print(f"⚠️  Local checkpoint unavailable; using DBFS fallback: {fallback}")
-        return fallback
+        os.makedirs(path, exist_ok=True)
+    except:
+        pass
+    return path
 
-# For CSV streaming sources (local temp)
 STREAM_SRC_DIR = "/tmp/streaming_csv_source"
-
-# Ensure source directory exists
 os.makedirs(STREAM_SRC_DIR, exist_ok=True)
-print(f"  📁 {STREAM_SRC_DIR}")
 
 # Kill any lingering streams
 for q in spark.streams.active:

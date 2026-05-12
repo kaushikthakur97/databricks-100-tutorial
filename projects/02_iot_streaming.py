@@ -90,15 +90,14 @@ TABLE_SENSOR_STATS = f"{DB}.iot_sensor_stats"
 
 # Checkpoint helper with serverless-friendly fallback
 def get_checkpoint(name):
-    """Return a checkpoint path. Tries Volume path first, falls back to DBFS."""
-    volume_path = f"/Volumes/{DB}/checkpoints/{name}"
-    dbfs_path   = f"dbfs:/tmp/{DB}/_checkpoints_iot/{name}"
+    """Return a checkpoint path. Uses local temp (serverless may need cloud storage)."""
+    local_path = f"/tmp/checkpoints_iot/{name}"
     try:
-        os.makedirs(volume_path.replace("/Volumes/", "/Volumes/"), exist_ok=True)
-        return volume_path
+        os.makedirs(local_path, exist_ok=True)
+        return local_path
     except Exception:
-        print(f"⚠️  Volume path unavailable; using DBFS fallback: {dbfs_path}")
-        return dbfs_path
+        print(f"Checkpoint path unavailable. For serverless, use cloud storage: s3://bucket/checkpoints/{name}")
+        return f"/tmp/checkpoints_iot/{name}"
 
 # Kill any lingering streams from previous runs
 for q in spark.streams.active:

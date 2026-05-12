@@ -593,11 +593,9 @@ display(dbutils.fs.ls("dbfs:/"))
 
 import pyspark.sql.functions as F
 
-# Write Parquet to DBFS, then read it back
-output_path = "dbfs:/tmp/cheatsheet_demo_parquet"
+# Write Parquet as managed table, then read it back
 df = spark.table("main.default.cheatsheet_demo")
-
-df.write.format("parquet").mode("overwrite").option("compression", "snappy").save(output_path)
+df.write.format("parquet").mode("overwrite").option("compression", "snappy").saveAsTable("default.cheatsheet_demo_parquet")
 
 read_back = spark.read.format("parquet").load(output_path)
 print(f"Parquet files count: {read_back.count()} rows")
